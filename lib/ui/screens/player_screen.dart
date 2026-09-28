@@ -12,7 +12,7 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderStateMixin {
+class _PlayerScreenState extends State<PlayerScreen> with TickerProviderStateMixin {
   late TabController _tabController;
   String? _lyricsText;
   bool _isLoadingLyrics = false;
@@ -387,15 +387,18 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
                         itemBuilder: (context, index) {
                           final item = player.queue[index];
                           final isCurrent = index == player.currentIndex;
-                          return ListTile(
-                            leading: ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: Image.network(item.coverUrl, width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: Colors.grey, width: 40, height: 40)),
+                          return Material(
+                            color: Colors.transparent,
+                            child: ListTile(
+                              leading: ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: Image.network(item.coverUrl, width: 40, height: 40, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: Colors.grey, width: 40, height: 40)),
+                              ),
+                              title: Text(item.title, style: TextStyle(color: isCurrent ? const Color(0xFF1DB954) : Colors.white, fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal), maxLines: 1),
+                              subtitle: Text(item.artist, style: const TextStyle(color: Colors.white60, fontSize: 12), maxLines: 1),
+                              trailing: isCurrent ? const Icon(Icons.volume_up, color: Color(0xFF1DB954), size: 20) : null,
+                              onTap: () => player.playTrack(item),
                             ),
-                            title: Text(item.title, style: TextStyle(color: isCurrent ? const Color(0xFF1DB954) : Colors.white, fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal), maxLines: 1),
-                            subtitle: Text(item.artist, style: const TextStyle(color: Colors.white60, fontSize: 12), maxLines: 1),
-                            trailing: isCurrent ? const Icon(Icons.volume_up, color: Color(0xFF1DB954), size: 20) : null,
-                            onTap: () => player.playTrack(item),
                           );
                         },
                       ),
