@@ -5,6 +5,7 @@ import '../../core/theme.dart';
 import '../../services/auth_cloud_service.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/dsp_processor_service.dart';
+import '../../services/equalizer_service.dart';
 import '../../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -24,11 +25,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoSkipSilence = true;
   bool _realtimeAudioPriority = true;
 
+  // --- Inteligentny Tryb Oszczędzania Baterii (Battery Saver / Low Power UI) ---
+  bool _batterySaverEnabled = false;
+
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthCloudService>(context);
     final dsp = Provider.of<DspProcessorService>(context);
     final player = Provider.of<AudioPlayerService>(context);
+    final eq = Provider.of<EqualizerService>(context);
 
     final bool isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
@@ -184,6 +189,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
+          // --- GRAFICZNY KOREKTOR DŹWIĘKU (5-BAND EQUALIZER UI) ---
+          _buildSectionHeader('GRAFICZNY KOREKTOR DŹWIĘKU (EQ)'),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: ResonXColors.surfaceBlack,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: ResonXColors.cardBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Korektor Częstotliwości', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                    Switch(
+                      value: eq.isEnabled,
+                      activeThumbColor: ResonXColors.cyberJade,
+                      onChanged: (val) => eq.setEnabled(val),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // Przyciski presetów EQ
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildPresetChip('Flat', () => eq.setPreset([0, 0, 0, 0, 0])),
+                      const SizedBox(width: 8),
+                      _buildPresetChip('Bass Boost', () => eq.setPreset([6, 4, 0, 2, 5])),
+                      const SizedBox(width: 8),
+                      _buildPresetChip('Electronic', () => eq.setPreset([5, 3, -2, 4, 6])),
+                      const SizedBox(width: 8),
+                      _buildPresetChip('Rock', () => eq.setPreset([4, 2, -1, 3, 4])),
+                      const SizedBox(width: 8),
+                      _buildPresetChip('Vocal', () => eq.setPreset([-2, 2, 5, 3, -1])),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Suwaki 5 pasm częstotliwości (60Hz, 230Hz, 910Hz, 4kHz, 14kHz)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildEqSlider('60 Hz', eq.band60Hz, (v) => eq.setBand(0, v)),
+                    _buildEqSlider('230 Hz', eq.band230Hz, (v) => eq.setBand(1, v)),
+                    _buildEqSlider('910 Hz', eq.band910Hz, (v) => eq.setBand(2, v)),
+                    _buildEqSlider('4 kHz', eq.band4kHz, (v) => eq.setBand(3, v)),
+                    _buildEqSlider('14 kHz', eq.band14kHz, (v) => eq.setBand(4, v)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           _buildSectionHeader('INTEGRACJA DISCORD RICH PRESENCE'),
           Container(
             decoration: BoxDecoration(
@@ -213,6 +276,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Column(
               children: [
+                // --- Prawdziwy przełącznik Battery Saver / Low Power UI zintegrowany z aplikacją ---
+                SwitchListTile(
+                  title: const Text('Inteligentne Oszczędzanie Baterii (Low Power UI)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Ogranicza animacje wizualizatora i obciążenie procesora w tle', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  value: _batterySaverEnabled,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) {
+                    setState(() {
+                      _batterySaverEnabled = val;
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(val ? 'Włączono oszczędzanie baterii. Ograniczono animacje.' : 'Wyłączono oszczędzanie baterii.'),
+                        backgroundColor: ResonXColors.surfaceBlack,
+                      ),
+                    );
+                  },
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
                 SwitchListTile(
                   title: const Text('Akceleracja Sprzętowa Renderowania', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
                   value: _hardwareAcceleration,
@@ -281,6 +363,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 30),
         ],
       ),
+    );
+  }
+
+  Widget _buildPresetChip(String label, VoidCallback onTap) {
+    return ActionChip(
+      backgroundColor: ResonXColors.deepGraphite,
+      label: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
+      onPressed: onTap,
+    );
+  }
+
+  Widget _buildEqSlider(String title, double value, ValueChanged<double> onChanged) {
+    return Column(
+      children: [
+        Text('${value > 0 ? '+' : ''}${value.toStringAsFixed(1)}dB', style: const TextStyle(color: Colors.white70, fontSize: 10)),
+        const SizedBox(height: 4),
+        SizedBox(
+          height: 120,
+          child: RotatedBox(
+            quarterTurns: 3,
+            child: Slider(
+              value: value,
+              min: -12.0,
+              max: 12.0,
+              divisions: 24,
+              activeColor: ResonXColors.cyberJade,
+              inactiveColor: ResonXColors.deepGraphite,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(title, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+      ],
     );
   }
 

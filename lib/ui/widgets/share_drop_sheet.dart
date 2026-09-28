@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../models/track.dart';
 import '../../services/audio_player_service.dart';
+import '../../services/database_service.dart';
 import '../../services/smart_features_service.dart';
 
 class ShareDropSheet extends StatefulWidget {
@@ -100,8 +100,8 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
     );
   }
 
-  // DIALOG ODBIERANIA / IMPORTOWANIA SHARE DROP NA DRUGIM TELEFONIE
-  static void showReceiveDropDialog(BuildContext context, {required Function(String name, List<Track> tracks) onPlaylistImported, required Function(Track track) onTrackImported}) {
+  // DIALOG ODBIERANIA / IMPORTOWANIA SHARE DROP Z BEZPIECZNYM ZAPISEM I ODTWARZANIEM
+  static void showReceiveDropDialog(BuildContext context) {
     final textController = TextEditingController();
 
     showDialog(
@@ -132,7 +132,7 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
               controller: textController,
               style: const TextStyle(color: Colors.white, fontSize: 13),
               decoration: InputDecoration(
-                hintText: 'Wklej link lub token z drugiego telefonu...',
+                hintText: 'Wklej link lub token z drugiego urządzenia...',
                 hintStyle: const TextStyle(color: Colors.white30, fontSize: 12),
                 filled: true,
                 fillColor: const Color(0xFF161924),
@@ -148,7 +148,7 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E676), foregroundColor: Colors.black),
-            onPressed: () {
+            onPressed: () async {
               final raw = textController.text.trim();
               if (raw.isEmpty) return;
 
@@ -173,11 +173,20 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
                     durationSeconds: m['durationSeconds'] ?? 0,
                   )).toList();
 
-                  onPlaylistImported(plName, tracks);
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Pomyślnie zaimportowano playlistę "$plName" (${tracks.length} utworów)!')),
-                  );
+                  // Zapis zaimportowanych utworów do historii / ulubionych w bazie
+                  for (final t in tracks) {
+                    await DatabaseService.instance.toggleFavorite(t);
+                  }
+
+                  if (context.mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Zaimportowano playlistę "$plName" (${tracks.length} utworów)!')),
+                    );
+                    if (tracks.isNotEmpty) {
+                      AudioPlayerService.instance.setQueue(tracks, startIndex: 0);
+                    }
+                  }
                 } else if (map['type'] == 'track') {
                   final m = map['track'];
                   final track = Track(
@@ -190,16 +199,22 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
                     durationSeconds: m['durationSeconds'] ?? 0,
                   );
 
-                  onTrackImported(track);
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Pomyślnie zaimportowano i włączono utwór "${track.title}"!')),
-                  );
+                  await DatabaseService.instance.toggleFavorite(track);
+
+                  if (context.mounted) {
+                    Navigator.pop(ctx);
+                    AudioPlayerService.instance.playTrack(track);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Zaimportowano i włączono utwór "${track.title}"!')),
+                    );
+                  }
                 }
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Błąd odczytu danych Drop: $e'), backgroundColor: Colors.redAccent),
-                );
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Błąd odczytu danych Drop: $e'), backgroundColor: Colors.redAccent),
+                  );
+                }
               }
             },
             child: const Text('Importuj i Odtwórz', style: TextStyle(fontWeight: FontWeight.bold)),

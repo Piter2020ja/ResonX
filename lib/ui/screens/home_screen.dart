@@ -226,6 +226,51 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // PRAWDZIWA FUNKCJA ODŚWIEŻANIA SIECI I TOKENÓW (BEZ RESTARTU APLIKACJI)
+  Future<void> _refreshNetworkStreams(BuildContext context) async {
+    setState(() {
+      _isLoadingNetworkTracks = true;
+    });
+
+    try {
+      // 1. Czyszczenie pamięci podręcznej i buforów sieciowych API
+      ApiService.instance.purgeAllCache();
+      debugPrint('[ResonX Network] Wyczyszczono cache strumieni oraz odświeżono tokeny.');
+
+      // 2. Ponowne pobranie danych dla obecnej kategorii lub zapytania
+      final currentKeyword = _searchQuery.isNotEmpty 
+          ? _searchQuery 
+          : _selectedCategory.split('/')[0].trim();
+          
+      await _executeNetworkSearch(currentKeyword);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pomyślnie odświeżono połączenie sieciowe i tokeny strumieni!'),
+            backgroundColor: ResonXPalette.surfaceCardHover,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[ResonX Network] Błąd odświeżania sieci: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Błąd odświeżania sieci: $e'),
+            backgroundColor: ResonXPalette.neonCoral,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingNetworkTracks = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     _searchDebounceTimer?.cancel();
@@ -2209,7 +2254,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ZABEZPIECZONY NAGŁÓWEK - NAPRAWIA OVERFLOW BY 4.4 PIXELS I 19 PIXELS
+  // ZABEZPIECZONY NAGŁÓWEK - ZAWIERA TERAZ PRZYCISK ODŚWIEŻANIA SIECI OBOK LOGA
   Widget _buildResonXHeader(AuthCloudService authService, AudioPlayerService playerService) {
     final session = authService.session;
     final bool isLoggedIn = authService.isAuthenticated;
@@ -2264,6 +2309,13 @@ class _HomeScreenState extends State<HomeScreen>
                     letterSpacing: 0.6,
                   ),
                 ),
+              ),
+              const SizedBox(width: 4),
+              // --- Prawdziwy, działający przycisk odświeżania sieci obok loga ---
+              _buildHeaderIconButton(
+                icon: Icons.refresh_rounded,
+                tooltip: 'Odśwież sieć i tokeny strumieni',
+                onTap: () => _refreshNetworkStreams(context),
               ),
             ],
           ),

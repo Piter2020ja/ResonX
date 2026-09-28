@@ -26,6 +26,37 @@ class EqualizerService extends ChangeNotifier {
   String _currentPreset = 'Flat';
   String get currentPreset => _currentPreset;
 
+  // --- KOMPATYBILNOŚĆ Z NOWYM UI (Metody żądane przez SettingsScreen) ---
+  void setEnabled(bool value) {
+    _isEnabled = value;
+    notifyListeners();
+  }
+
+  void setBand(int index, double gain) {
+    // Mapowanie 5 pasm z UI na 10 pasm silnika Equalizera
+    int targetIndex = (index * 2).clamp(0, _bandGains.length - 1);
+    setBandGain(targetIndex, gain);
+    if (targetIndex + 1 < _bandGains.length) {
+      setBandGain(targetIndex + 1, gain);
+    }
+  }
+
+  void setPreset(List<double> gains) {
+    _currentPreset = 'Custom';
+    for (int i = 0; i < gains.length; i++) {
+      setBand(i, gains[i]);
+    }
+    notifyListeners();
+  }
+  // ------------------------------------------------------------------
+
+  // Gettery dla 5 głównych pasm wywoływane w suwakach SettingsScreen
+  double get band60Hz => _bandGains[1];
+  double get band230Hz => _bandGains[3];
+  double get band910Hz => _bandGains[5];
+  double get band4kHz => _bandGains[7];
+  double get band14kHz => _bandGains[9];
+
   void toggleEnabled(bool value) {
     _isEnabled = value;
     notifyListeners();
@@ -83,4 +114,4 @@ class EqualizerService extends ChangeNotifier {
       _bandGains[i] = gains[i];
     }
   }
-} 
+}

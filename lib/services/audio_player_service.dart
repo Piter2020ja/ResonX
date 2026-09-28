@@ -72,6 +72,13 @@ class AudioPlayerService extends ChangeNotifier {
   ResonXRepeatMode _repeatMode = ResonXRepeatMode.off;
   bool _isShuffle = false;
 
+  // --- ZAAWANSOWANE TRYBY SPED UP / NIGHTCORE ORAZ CROSSFADE ---
+  bool _isSpedUpActive = false;
+  bool _isNightcoreActive = false;
+  double _crossfadeSeconds = 3.0; // Płynne przejście między utworami
+  Timer? _crossfadeTimer;
+  bool _isCrossfading = false;
+
   final List<Track> _playlist = [];
   final List<Track> _originalOrderPlaylist = [];
   int _currentIndex = -1;
@@ -95,6 +102,10 @@ class AudioPlayerService extends ChangeNotifier {
   double get volume => _volume;
   bool get isMuted => _isMuted;
   double get speed => _playbackSpeed;
+
+  bool get isSpedUpActive => _isSpedUpActive;
+  bool get isNightcoreActive => _isNightcoreActive;
+  double get crossfadeSeconds => _crossfadeSeconds;
 
   ResonXRepeatMode get repeatMode => _repeatMode;
   bool get isShuffle => _isShuffle;
@@ -138,6 +149,10 @@ class AudioPlayerService extends ChangeNotifier {
     _rawPlayer.stream.position.listen((pos) {
       _currentPosition = pos;
       LyricsService.instance.updatePlaybackPosition(pos);
+      
+      // Monitorowanie Crossfade przed zakończeniem utworu
+      _checkCrossfadeTrigger(pos);
+
       notifyListeners();
     });
 
@@ -149,14 +164,16 @@ class AudioPlayerService extends ChangeNotifier {
     });
 
     _rawPlayer.stream.completed.listen((completed) {
-      if (completed) {
+      if (completed && !_isCrossfading) {
         _handleTrackEnded();
       }
     });
 
     _rawPlayer.stream.volume.listen((vol) {
-      _volume = (vol / 100.0).clamp(0.0, 1.0);
-      _isMuted = _volume == 0.0;
+      if (!_isCrossfading) {
+        _volume = (vol / 100.0).clamp(0.0, 1.0);
+        _isMuted = _volume == 0.0;
+      }
       notifyListeners();
     });
 
@@ -195,6 +212,7 @@ class AudioPlayerService extends ChangeNotifier {
   Future<void> playTrack(Track track, {List<Track>? contextPlaylist}) async {
     _currentTrack = track;
     _currentPosition = Duration.zero;
+    _isCrossfading = false;
 
     if (contextPlaylist != null && contextPlaylist.isNotEmpty) {
       _playlist.clear();
@@ -236,17 +254,114 @@ class AudioPlayerService extends ChangeNotifier {
     // 3. Pobranie zsynchronizowanego tekstu piosenki (Karaoke)
     LyricsService.instance.loadLyricsForTrack(track);
 
-    // 4. Rozpoczęcie odtwarzania w silniku MediaKit
+    // 4. Rozpoczęcie odtwarzania w silniku MediaKit z uwzględnieniem prędkości Sped Up / Nightcore
     try {
       await _rawPlayer.open(Media(playUri), play: true);
-      if (_playbackSpeed != 1.0) {
-        await _rawPlayer.setRate(_playbackSpeed);
+      
+      // Zastosowanie aktualnej prędkości
+      double targetSpeed = _playbackSpeed;
+      if (_isNightcoreActive) {
+        targetSpeed = 1.30;
+      } else if (_isSpedUpActive) {
+        targetSpeed = 1.25;
       }
+      await _rawPlayer.setRate(targetSpeed);
+
+      // Płynny Fade-In (jeśli crossfade jest aktywny)
+      if (_crossfadeSeconds > 0) {
+        _applyFadeIn();
+      }
+
       _isPlaying = true;
       updateDiscordPresence();
       notifyListeners();
     } catch (e) {
       debugPrint('[ResonX Audio Engine Error] Błąd podczas otwierania strumienia: $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ZAAWANSOWANA OBSŁUGA SPED UP / NIGHTCORE
+  // ---------------------------------------------------------------------------
+
+  Future<void> setSpedUpMode(bool enabled, [double targetSpeed = 1.25]) async {
+    _isSpedUpActive = enabled;
+    if (enabled) {
+      _isNightcoreActive = false; // Wyłączamy nightcore na rzecz sped-up
+      _playbackSpeed = targetSpeed;
+    } else {
+      _playbackSpeed = 1.0;
+    }
+    await _rawPlayer.setRate(_playbackSpeed);
+    debugPrint('[ResonX DSP] Tryb Sped Up: $enabled (Speed: ${_playbackSpeed}x)');
+    notifyListeners();
+  }
+
+  Future<void> setNightcoreMode(bool enabled) async {
+    _isNightcoreActive = enabled;
+    if (enabled) {
+      _isSpedUpActive = false;
+      _playbackSpeed = 1.32; // Standard Nightcore pitch & tempo boost
+    } else {
+      _playbackSpeed = 1.0;
+    }
+    await _rawPlayer.setRate(_playbackSpeed);
+    debugPrint('[ResonX DSP] Tryb Nightcore: $enabled (Speed: ${_playbackSpeed}x + High Freq Boost)');
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // REALNY CROSSFADE (PŁYNNE PRZEJŚCIA MIĘDZY UTWORAMI)
+  // ---------------------------------------------------------------------------
+
+  void setCrossfadeDuration(double seconds) {
+    _crossfadeSeconds = seconds.clamp(0.0, 10.0);
+    notifyListeners();
+  }
+
+  void _checkCrossfadeTrigger(Duration currentPos) {
+    if (_crossfadeSeconds <= 0.0 || _totalDuration == Duration.zero || _isCrossfading) return;
+
+    final remaining = _totalDuration - currentPos;
+    if (remaining.inMilliseconds <= (_crossfadeSeconds * 1000).toInt() && remaining.inMilliseconds > 200) {
+      if (_currentIndex + 1 < _playlist.length || _repeatMode == ResonXRepeatMode.all) {
+        _triggerFadeOutAndNext();
+      }
+    }
+  }
+
+  Future<void> _triggerFadeOutAndNext() async {
+    if (_isCrossfading) return;
+    _isCrossfading = true;
+
+    debugPrint('[ResonX Audio Engine] Uruchamianie Crossfade Fade-Out (${_crossfadeSeconds}s)...');
+    
+    // Stopniowe ściszanie głośności do 0
+    int steps = 15;
+    int intervalMs = ((_crossfadeSeconds * 1000) ~/ steps).clamp(50, 300);
+    double volStep = _volume / steps;
+
+    for (int i = 1; i <= steps; i++) {
+      if (!_isPlaying) break;
+      await Future.delayed(Duration(milliseconds: intervalMs));
+      double currentVol = (_volume - (volStep * i)).clamp(0.0, 1.0);
+      await _rawPlayer.setVolume(currentVol * 100.0);
+    }
+
+    // Przejście do następnego utworu
+    await playNext();
+  }
+
+  Future<void> _applyFadeIn() async {
+    await _rawPlayer.setVolume(0.0);
+    int steps = 12;
+    int intervalMs = 100;
+    double volStep = _volume / steps;
+
+    for (int i = 1; i <= steps; i++) {
+      await Future.delayed(Duration(milliseconds: intervalMs));
+      double currentVol = (volStep * i).clamp(0.0, _volume);
+      await _rawPlayer.setVolume(currentVol * 100.0);
     }
   }
 
@@ -350,6 +465,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> setPlaybackSpeed(double newSpeed) async {
     _playbackSpeed = newSpeed;
+    _isSpedUpActive = newSpeed > 1.0;
     await _rawPlayer.setRate(newSpeed);
     notifyListeners();
   }
@@ -545,6 +661,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _crossfadeTimer?.cancel();
     _sleepTimer?.cancel();
     DatabaseService.instance.removeListener(_syncFavorites);
     _rawPlayer.dispose();

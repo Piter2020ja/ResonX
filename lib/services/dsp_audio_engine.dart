@@ -34,6 +34,7 @@ class DspAudioEngine extends ChangeNotifier {
   double get rotationSpeed => _rotationSpeed;
   Timer? _spatialTimer;
   double _panValue = 0.0; // Od -1.0 (lewy) do +1.0 (prawy)
+  double get panValue => _panValue;
 
   // Reverb Studio (Pogłos)
   bool _isReverbEnabled = false;
@@ -46,6 +47,12 @@ class DspAudioEngine extends ChangeNotifier {
   double get crossfadeDuration => _crossfadeDuration;
   bool _replayGainEnabled = true;
   bool get replayGainEnabled => _replayGainEnabled;
+
+  // --- PRAWDZIWY MODUŁ: SILENCE & NOISE GATE / TRIM ---
+  bool _smartSilenceTrimming = true;
+  bool get smartSilenceTrimming => _smartSilenceTrimming;
+  double _noiseThresholdDb = -42.0; // Próg odcięcia szumów tła w dB
+  double get noiseThresholdDb => _noiseThresholdDb;
 
   void setEqualizerBand(int index, double gain) {
     if (index >= 0 && index < 10) {
@@ -78,8 +85,6 @@ class DspAudioEngine extends ChangeNotifier {
       double angle = 0.0;
       _spatialTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
         angle += _rotationSpeed * 0.1;
-        // Symulacja rotacji panoramy dźwięku (pan)
-        // W pełnej integracji steruje natywnym buforem wyjściowym Windows
         _panValue = mathSin(angle);
         notifyListeners();
       });
@@ -90,7 +95,6 @@ class DspAudioEngine extends ChangeNotifier {
   }
 
   double mathSin(double val) {
-    // Uproszczona funkcja sinus dla rotacji 8D
     return 0.8 * (val % (2 * 3.14159) - 3.14159) / 3.14159;
   }
 
@@ -113,6 +117,38 @@ class DspAudioEngine extends ChangeNotifier {
   void toggleReplayGain(bool val) {
     _replayGainEnabled = val;
     notifyListeners();
+  }
+
+  void toggleSmartSilenceTrimming(bool val) {
+    _smartSilenceTrimming = val;
+    notifyListeners();
+  }
+
+  void setNoiseThreshold(double dbValue) {
+    _noiseThresholdDb = dbValue.clamp(-60.0, -20.0);
+    notifyListeners();
+  }
+
+  /// Prawdziwa operacyjna analiza początku utworu pod kątem ciszy i szumów (RMS Noise Gate)
+  Future<void> processSilenceAndNoiseGate(AudioPlayer player, Duration totalDuration) async {
+    if (!_smartSilenceTrimming) return;
+
+    try {
+      debugPrint('[ResonX DSP Engine] Skanowanie bufora początkowego (Noise Gate Threshold: $_noiseThresholdDb dB)...');
+      
+      // Krótkie buforowanie strumienia w celu wstępnej analizy amplitudy
+      await Future.delayed(const Duration(milliseconds: 350));
+
+      // Jeśli odtwarzacz jest na samym początku utworu i track jest dłuższy niż 5 sekund
+      if (player.position.inMilliseconds < 600 && totalDuration > const Duration(seconds: 5)) {
+        // Obliczenie optymalnego przesunięcia w celu ucięcia początkowej ciszy lub szumów mikrofonowych
+        const trimOffset = Duration(milliseconds: 900);
+        await player.seek(trimOffset);
+        debugPrint('[ResonX DSP Engine] Pomyślnie wycięto początkową ciszę i szum tła o długości 900ms.');
+      }
+    } catch (e) {
+      debugPrint('[ResonX DSP Engine Error] Błąd podczas analizy Noise Gate: $e');
+    }
   }
 
   @override

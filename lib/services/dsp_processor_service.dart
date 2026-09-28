@@ -52,6 +52,10 @@ class DspProcessorService extends ChangeNotifier {
   int _bluetoothSyncOffsetMs = 0; // -500ms do 500ms
   int get bluetoothSyncOffsetMs => _bluetoothSyncOffsetMs;
 
+  // Realny przełącznik Noise Gate w procesorze DSP
+  bool _noiseGateActive = true;
+  bool get noiseGateActive => _noiseGateActive;
+
   void setEnabled(bool value) {
     _isEnabled = value;
     notifyListeners();
@@ -82,7 +86,6 @@ class DspProcessorService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Obsługuje zarówno wywołanie bez argumentu (), jak i z argumentem (bool value)
   void toggleSpatial8D([bool? value]) {
     _is8dAudioEnabled = value ?? !_is8dAudioEnabled;
     notifyListeners();
@@ -93,15 +96,18 @@ class DspProcessorService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Obsługuje zarówno () jak i (bool value)
   void toggleSubBassCut([bool? value]) {
     _subBassCut = value ?? !_subBassCut;
     notifyListeners();
   }
 
-  // Obsługuje zarówno () jak i (bool value)
   void toggleMono([bool? value]) {
     _monoConversion = value ?? !_monoConversion;
+    notifyListeners();
+  }
+
+  void toggleNoiseGate([bool? value]) {
+    _noiseGateActive = value ?? !_noiseGateActive;
     notifyListeners();
   }
 
@@ -167,6 +173,7 @@ class DspProcessorService extends ChangeNotifier {
     _stereoPan = 0.0;
     _reverb = ReverbPreset.off;
     _bluetoothSyncOffsetMs = 0;
+    _noiseGateActive = true;
     notifyListeners();
   }
 
@@ -184,6 +191,7 @@ class DspProcessorService extends ChangeNotifier {
       'monoConversion': _monoConversion,
       'stereoPan': _stereoPan,
       'bluetoothSyncOffsetMs': _bluetoothSyncOffsetMs,
+      'noiseGateActive': _noiseGateActive,
     };
   }
 
@@ -199,6 +207,7 @@ class DspProcessorService extends ChangeNotifier {
     _monoConversion = data['monoConversion'] ?? false;
     _stereoPan = (data['stereoPan'] as num?)?.toDouble() ?? 0.0;
     _bluetoothSyncOffsetMs = data['bluetoothSyncOffsetMs'] ?? 0;
+    _noiseGateActive = data['noiseGateActive'] ?? true;
     if (data['reverbPreset'] != null) {
       _reverb = ReverbPreset.values.firstWhere(
         (e) => e.name == data['reverbPreset'],

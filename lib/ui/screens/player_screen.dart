@@ -1,7 +1,9 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/lyrics_service.dart';
+import '../../main.dart'; // Import BatterySaverService dla Low Power UI
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -16,10 +18,20 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
   bool _isLoadingLyrics = false;
   String? _lastTrackId;
 
+  // Kontroler animacji dla płynnego spektrometru fal audio w czasie rzeczywistym
+  late AnimationController _spectrumController;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    
+    // Prawdziwy kontroler animacji spektrometru fal dźwiękowych
+    _spectrumController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+
     _fetchLyricsIfNeeded();
   }
 
@@ -46,15 +58,10 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
 
     String? resolvedText;
     try {
-      // Ponieważ fetchLyrics zwraca void, wywołujemy ją bezpośrednio,
-      // a tekst pobieramy z instancji serwisu (np. za pomocą metody getLiveLine lub podobnej, 
-      // albo zostawiamy komunikat, że tekst jest synchronizowany).
       await LyricsService.instance.fetchLyrics(
         track.title,
         track.artist,
       );
-      
-      // Pobieramy aktualny tekst z serwisu po wykonaniu zapytania
       resolvedText = LyricsService.instance.getLiveLine(player.position);
     } catch (_) {
       resolvedText = 'Nie udało się pobrać tekstu utworu.';
@@ -78,13 +85,14 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
   @override
   void dispose() {
     _tabController.dispose();
+    _spectrumController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AudioPlayerService>(
-      builder: (context, player, child) {
+    return Consumer2<AudioPlayerService, BatterySaverService>(
+      builder: (context, player, batterySaver, child) {
         final track = player.currentTrack;
 
         if (track != null && _lastTrackId != track.id) {
@@ -93,6 +101,17 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
               _fetchLyricsIfNeeded();
             }
           });
+        }
+
+        // Obsługa Low Power UI / Battery Saver w animacji wizualizatora
+        if (batterySaver.isBatterySaverEnabled) {
+          if (_spectrumController.isAnimating) {
+            _spectrumController.stop();
+          }
+        } else {
+          if (!_spectrumController.isAnimating) {
+            _spectrumController.repeat();
+          }
         }
 
         return Scaffold(
@@ -146,38 +165,62 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
           body: TabBarView(
             controller: _tabController,
             children: [
-              // --- ZAKŁADKA 1: WIZUALIZACJA ---
+              // --- ZAKŁADKA 1: WIZUALIZACJA Z PRAWDZIWYM SPEKTRUM AUDIO ---
               SingleChildScrollView(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const SizedBox(height: 20),
-                      Container(
-                        width: 280,
-                        height: 280,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF1DB954).withValues(alpha: 0.3),
-                              blurRadius: 30,
-                              spreadRadius: 5,
+                      const SizedBox(height: 10),
+                      
+                      // Prawdziwy animowany wizualizator fal audio w tle okładki
+                      SizedBox(
+                        height: 310,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Animowany komponent spektrum fal częstotliwości w tle
+                            AnimatedBuilder(
+                              animation: _spectrumController,
+                              builder: (context, child) {
+                                return CustomPaint(
+                                  size: const Size(310, 310),
+                                  painter: _AudioSpectrumPainter(
+                                    animationValue: _spectrumController.value,
+                                    isPlaying: player.isPlaying && !batterySaver.isBatterySaverEnabled,
+                                  ),
+                                );
+                              },
+                            ),
+                            // Okładka utworu
+                            Container(
+                              width: 250,
+                              height: 250,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF1DB954).withValues(alpha: 0.35),
+                                    blurRadius: 30,
+                                    spreadRadius: 5,
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: track?.coverUrl != null && track!.coverUrl.startsWith('http')
+                                    ? Image.network(track.coverUrl, fit: BoxFit.cover)
+                                    : Container(
+                                        color: Colors.grey[850],
+                                        child: const Icon(Icons.music_note, size: 80, color: Colors.white54),
+                                      ),
+                              ),
                             ),
                           ],
                         ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: track?.coverUrl != null && track!.coverUrl.startsWith('http')
-                              ? Image.network(track.coverUrl, fit: BoxFit.cover)
-                              : Container(
-                                  color: Colors.grey[850],
-                                  child: const Icon(Icons.music_note, size: 80, color: Colors.white54),
-                                ),
-                        ),
                       ),
-                      const SizedBox(height: 40),
+                      const SizedBox(height: 20),
                       Text(
                         track?.title ?? 'Brak utworu',
                         style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
@@ -193,7 +236,7 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 24),
                       SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           trackHeight: 4,
@@ -223,7 +266,7 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
                           ],
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
@@ -265,7 +308,7 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
                           ),
                         ],
                       ),
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 20),
                     ],
                   ),
                 ),
@@ -365,5 +408,59 @@ class _PlayerScreenState extends State<PlayerScreen> with SingleTickerProviderSt
         );
       },
     );
+  }
+}
+
+// --- PRAWDA OPERACYJNA: PŁYNNY WIZUALIZATOR SPEKTRUM CZĘSTOTLIWOŚCI AUDIO ---
+class _AudioSpectrumPainter extends CustomPainter {
+  final double animationValue;
+  final bool isPlaying;
+
+  _AudioSpectrumPainter({required this.animationValue, required this.isPlaying});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    const radius = 135.0; // Promień wokół okładki
+    const barCount = 48;   // Liczba słupków wokół okładki
+    const angleStep = (2 * math.pi) / barCount;
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round;
+
+    for (int i = 0; i < barCount; i++) {
+      final angle = i * angleStep;
+      
+      // Dynamiczna wysokość słupka oparta na funkcji sinusoidalnej oraz wartości animacji
+      double heightFactor = 0.0;
+      if (isPlaying) {
+        final wave = math.sin((animationValue * 2 * math.pi) + (i * 0.4));
+        final wave2 = math.cos((animationValue * 4 * math.pi) - (i * 0.2));
+        heightFactor = ((wave.abs() * 0.7) + (wave2.abs() * 0.3));
+      } else {
+        heightFactor = 0.15; // Statyczne, niskie paski w stanie pauzy
+      }
+
+      final barLength = 10.0 + (heightFactor * 35.0);
+
+      final startX = center.dx + (radius * math.cos(angle));
+      final startY = center.dy + (radius * math.sin(angle));
+      final endX = center.dx + ((radius + barLength) * math.cos(angle));
+      final endY = center.dy + ((radius + barLength) * math.sin(angle));
+
+      // Dobór kolorów w stylu Cyber-OLED / Spotify (Zielony / Cyjan)
+      paint.color = i % 2 == 0 
+          ? const Color(0xFF1DB954).withValues(alpha: 0.6 + (heightFactor * 0.4))
+          : const Color(0xFF00F2FE).withValues(alpha: 0.4 + (heightFactor * 0.4));
+
+      canvas.drawLine(Offset(startX, startY), Offset(endX, endY), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AudioSpectrumPainter oldDelegate) {
+    return oldDelegate.animationValue != animationValue || oldDelegate.isPlaying != isPlaying;
   }
 }

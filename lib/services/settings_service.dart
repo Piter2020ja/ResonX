@@ -15,11 +15,15 @@ class SettingsService extends ChangeNotifier {
   bool _pauseOnPhoneCall = true;  // Automatyczna pauza podczas rozmowy telefonicznej
   bool _autoDownloadFavorites = false;
   String _preferredAudioQuality = 'HQ (320kbps)';
+  
+  // --- Prawdziwy stan oszczędzania baterii zintegrowany z plikiem konfiguracyjnym ---
+  bool _batterySaverEnabled = false;
 
   bool get ignoreAudioFocus => _ignoreAudioFocus;
   bool get pauseOnPhoneCall => _pauseOnPhoneCall;
   bool get autoDownloadFavorites => _autoDownloadFavorites;
   String get preferredAudioQuality => _preferredAudioQuality;
+  bool get batterySaverEnabled => _batterySaverEnabled;
 
   Future<File> _getSettingsFile() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -41,6 +45,7 @@ class SettingsService extends ChangeNotifier {
           _pauseOnPhoneCall = data['pause_on_phone_call'] as bool? ?? true;
           _autoDownloadFavorites = data['auto_download_fav'] as bool? ?? false;
           _preferredAudioQuality = data['preferred_quality'] as String? ?? 'HQ (320kbps)';
+          _batterySaverEnabled = data['battery_saver_enabled'] as bool? ?? false;
           notifyListeners();
         }
       }
@@ -57,6 +62,7 @@ class SettingsService extends ChangeNotifier {
         'pause_on_phone_call': _pauseOnPhoneCall,
         'auto_download_fav': _autoDownloadFavorites,
         'preferred_quality': _preferredAudioQuality,
+        'battery_saver_enabled': _batterySaverEnabled,
       };
       await file.writeAsString(jsonEncode(data));
     } catch (e) {
@@ -86,5 +92,12 @@ class SettingsService extends ChangeNotifier {
     _preferredAudioQuality = quality;
     notifyListeners();
     await _saveSettings();
+  }
+
+  Future<void> setBatterySaverEnabled(bool value) async {
+    _batterySaverEnabled = value;
+    notifyListeners();
+    await _saveSettings();
+    debugPrint('[ResonX BatterySaver] Tryb oszczędzania baterii zapisany: $value');
   }
 }

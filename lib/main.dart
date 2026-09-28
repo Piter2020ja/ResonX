@@ -24,6 +24,27 @@ import 'ui/screens/home_screen.dart';
 import 'ui/widgets/resonx_welcome_setup_dialog.dart';
 import 'package:media_kit/media_kit.dart';
 
+// --- GLOBALNY SERWIS OSZCZĘDZANIA BATERII (BATTERY SAVER / LOW POWER UI) ---
+class BatterySaverService extends ChangeNotifier {
+  static final BatterySaverService instance = BatterySaverService._internal();
+  BatterySaverService._internal();
+
+  bool _isBatterySaverEnabled = false;
+  bool get isBatterySaverEnabled => _isBatterySaverEnabled;
+
+  void setBatterySaver(bool enabled) {
+    if (_isBatterySaverEnabled != enabled) {
+      _isBatterySaverEnabled = enabled;
+      debugPrint('[ResonX BatterySaver] Tryb Low Power UI: $enabled');
+      notifyListeners();
+    }
+  }
+
+  void toggle() {
+    setBatterySaver(!_isBatterySaverEnabled);
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
@@ -69,6 +90,7 @@ void main() async {
         ChangeNotifierProvider.value(value: DspProcessorService.instance),
         ChangeNotifierProvider.value(value: EqualizerService.instance),
         ChangeNotifierProvider.value(value: DjModeService.instance),
+        ChangeNotifierProvider.value(value: BatterySaverService.instance),
       ],
       child: const ResonXApp(),
     ),
