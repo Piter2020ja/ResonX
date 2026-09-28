@@ -22,15 +22,16 @@ dependencies:
   youtube_explode_dart: ^2.2.1
   sqflite_common_ffi: ^2.4.3
   shared_preferences: ^2.3.2
+  dart_des: ^1.0.2
 
-  # Zachowane dla zgodności z pozostałymi serwisami (DJ, DSP, ReplayGain)
+  # Zachowane dla zgodności z pozostałymi serwisami
   just_audio: ^0.9.40
   just_audio_windows: ^0.2.3
 
-  # Silnik MPV do bezbłędnego odtwarzania
+  # Silnik MPV + biblioteki systemowe dla Windowsa i Androida
   media_kit: ^1.1.10
   media_kit_libs_windows_audio: ^1.0.9
-  dart_des: ^1.0.2
+  media_kit_libs_android_audio: ^1.0.4
 
 dev_dependencies:
   flutter_test:

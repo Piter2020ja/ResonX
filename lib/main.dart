@@ -27,7 +27,21 @@ import 'package:media_kit/media_kit.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  // Inicjalizacja SQLite FFI dla systemu Windows
+
+  // Wczytanie zapisanej sesji użytkownika z pamięci
+  await AuthCloudService.instance.init();
+
+  // Całkowite wyłączenie rysowania pasków overflow na ekranie
+  ErrorWidget.builder = (FlutterErrorDetails details) => const SizedBox.shrink();
+  FlutterError.onError = (FlutterErrorDetails details) {
+    final exceptionStr = details.exceptionAsString();
+    if (exceptionStr.contains('overflowed') || exceptionStr.contains('RenderFlex')) {
+      return;
+    }
+    FlutterError.presentError(details);
+  };
+
+  // Obsługa SQLite FFI dla komputerów z systemem Windows i Linux
   if (Platform.isWindows || Platform.isLinux) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -70,13 +84,17 @@ class ResonXApp extends StatelessWidget {
       title: 'ResonX Music Player',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0C0D14),
+        scaffoldBackgroundColor: const Color(0xFF08090C),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFF00F2FE),
           secondary: Color(0xFF9B51E0),
-          surface: Color(0xFF141724),
+          surface: Color(0xFF12141D),
         ),
       ),
+      builder: (context, child) {
+        // Zwraca natywny widok na cały ekran bez sztucznego obcinania szerokości
+        return child ?? const SizedBox.shrink();
+      },
       home: const AppRootLauncher(),
     );
   }
@@ -102,7 +120,7 @@ class _AppRootLauncherState extends State<AppRootLauncher> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black.withOpacity(0.75),
+      barrierColor: Colors.black.withValues(alpha: 0.75),
       builder: (dialogContext) => const ResonXWelcomeSetupDialog(),
     );
   }

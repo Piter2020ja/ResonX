@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../services/auth_cloud_service.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/dsp_processor_service.dart';
+import '../../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -13,11 +15,14 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  String _audioQuality = 'Lossless HQ (320kbps)';
+  String _audioQuality = 'Lossless HQ (320kbps / FLAC)';
   double _crossfadeDuration = 3.0;
+  double _bufferLatencySeconds = 3.0;
   bool _hardwareAcceleration = true;
   bool _autoResume = true;
   bool _normalizeVolume = true;
+  bool _autoSkipSilence = true;
+  bool _realtimeAudioPriority = true;
 
   @override
   Widget build(BuildContext context) {
@@ -25,123 +30,255 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final dsp = Provider.of<DspProcessorService>(context);
     final player = Provider.of<AudioPlayerService>(context);
 
+    final bool isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
     return Scaffold(
       backgroundColor: ResonXColors.deepGraphite,
       appBar: AppBar(
         backgroundColor: ResonXColors.surfaceBlack,
-        title: const Text('Centrum Ustawień & Konfiguracja 170 Funkcji', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text(
+          'Centrum Ustawień & Konfiguracja',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+        ),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(24.0),
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.all(isDesktop ? 24.0 : 16.0),
         children: [
           _buildSectionHeader('PROFIL & KONTO RESONX'),
-          ListTile(
-            leading: const Icon(Icons.account_circle, color: ResonXColors.cyberJade, size: 32),
-            title: Text(auth.session?.username ?? 'Gość', style: const TextStyle(color: ResonXColors.textPrimary, fontWeight: FontWeight.bold)),
-            subtitle: Text('${auth.session?.email ?? 'brak'} • Rola: ${auth.session?.tier.name.toUpperCase()}', style: const TextStyle(color: ResonXColors.textSecondary)),
-            trailing: ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: ResonXColors.errorRed),
-              onPressed: () async {
-                final nav = Navigator.of(context);
-                await auth.logout();
-                if (mounted) nav.pop();
-              },
-              child: const Text('Wyloguj', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: ResonXColors.surfaceBlack,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: ResonXColors.cardBorder),
+            ),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 26,
+                  backgroundColor: ResonXColors.cyberJade,
+                  child: Icon(Icons.person, color: Colors.black, size: 28),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        auth.session?.username ?? 'Gość (Tryb Lokalny)',
+                        style: const TextStyle(color: ResonXColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 15),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        auth.session?.email.isNotEmpty == true ? auth.session!.email : 'Zabezpieczona sesja offline',
+                        style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: auth.isAuthenticated ? ResonXColors.errorRed : ResonXColors.cyberJade,
+                    foregroundColor: auth.isAuthenticated ? Colors.white : Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () async {
+                    final nav = Navigator.of(context);
+                    await auth.logout();
+                    if (mounted) nav.pop();
+                  },
+                  child: Text(auth.isAuthenticated ? 'Wyloguj' : 'Gość Beta', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
+              ],
             ),
           ),
-          const Divider(color: ResonXColors.cardBorder, height: 32),
+          const SizedBox(height: 24),
 
           _buildSectionHeader('JAKOŚĆ DŹWIĘKU & SILNIK AUDIO DSP'),
-          ListTile(
-            title: const Text('Jakość Strumieniowania Audio', style: TextStyle(color: ResonXColors.textPrimary)),
-            subtitle: Text(_audioQuality, style: const TextStyle(color: ResonXColors.cyberJade)),
-            trailing: DropdownButton<String>(
-              dropdownColor: ResonXColors.surfaceBlack,
-              value: _audioQuality,
-              underline: const SizedBox(),
-              items: const [
-                DropdownMenuItem(value: 'Eco (128kbps AAC)', child: Text('Eco (128kbps AAC)', style: TextStyle(color: ResonXColors.textPrimary))),
-                DropdownMenuItem(value: 'Standard (192kbps MP3)', child: Text('Standard (192kbps MP3)', style: TextStyle(color: ResonXColors.textPrimary))),
-                DropdownMenuItem(value: 'Lossless HQ (320kbps)', child: Text('Lossless HQ (320kbps)', style: TextStyle(color: ResonXColors.cyberJade))),
+          Container(
+            decoration: BoxDecoration(
+              color: ResonXColors.surfaceBlack,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: ResonXColors.cardBorder),
+            ),
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('Jakość Strumieniowania Audio', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: Text(_audioQuality, style: const TextStyle(color: ResonXColors.cyberJade, fontSize: 12)),
+                  trailing: DropdownButton<String>(
+                    dropdownColor: ResonXColors.surfaceBlack,
+                    value: _audioQuality,
+                    underline: const SizedBox(),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    items: const [
+                      DropdownMenuItem(value: 'Eco (128kbps AAC)', child: Text('Eco (128kbps AAC)')),
+                      DropdownMenuItem(value: 'Standard (192kbps MP3)', child: Text('Standard (192kbps MP3)')),
+                      DropdownMenuItem(value: 'Lossless HQ (320kbps / FLAC)', child: Text('Lossless HQ (FLAC)')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setState(() => _audioQuality = val);
+                    },
+                  ),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                SwitchListTile(
+                  title: const Text('Normalizacja Głośności (ReplayGain)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Wyrównuje poziom głośności między różnymi albumami i utworami', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  value: _normalizeVolume,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) => setState(() => _normalizeVolume = val),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                SwitchListTile(
+                  title: const Text('Aktywny Procesor Efektów DSP', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: Text(
+                    dsp.isEnabled ? 'Włączony (Bass Boost: ${(dsp.bassBoostLevel * 100).toInt()}%, 3D: ${(dsp.spatialAudioLevel * 100).toInt()}%)' : 'Wyłączony',
+                    style: const TextStyle(color: ResonXColors.cyberJade, fontSize: 11.5),
+                  ),
+                  value: dsp.isEnabled,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) => dsp.setEnabled(val),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                SwitchListTile(
+                  title: const Text('Inteligentne Pomijanie Ciszy i Intro', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Automatycznie przycina martwe początki nagrań z SoundCloud', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  value: _autoSkipSilence,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) => setState(() => _autoSkipSilence = val),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Płynne Przejścia Utworów (Crossfade)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                          Text('${_crossfadeDuration.toStringAsFixed(1)}s', style: const TextStyle(color: ResonXColors.neonCyan, fontWeight: FontWeight.bold, fontSize: 13)),
+                        ],
+                      ),
+                      Slider(
+                        value: _crossfadeDuration,
+                        min: 0.0,
+                        max: 12.0,
+                        divisions: 12,
+                        activeColor: ResonXColors.cyberJade,
+                        inactiveColor: ResonXColors.deepGraphite,
+                        onChanged: (val) => setState(() => _crossfadeDuration = val),
+                      ),
+                    ],
+                  ),
+                ),
               ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          _buildSectionHeader('INTEGRACJA DISCORD RICH PRESENCE'),
+          Container(
+            decoration: BoxDecoration(
+              color: ResonXColors.surfaceBlack,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: ResonXColors.cardBorder),
+            ),
+            child: SwitchListTile(
+              title: const Text('Pokazuj Utwór na Discordzie', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+              subtitle: const Text('Wysyła tytuł, wykonawcę oraz okładkę do profilu Discord (Client ID: 1542593239)', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+              value: auth.session?.discordStatusEnabled ?? false,
+              activeThumbColor: ResonXColors.cyberJade,
               onChanged: (val) {
-                if (val != null) setState(() => _audioQuality = val);
+                auth.toggleDiscordStatus(val);
+                player.updateDiscordPresence();
               },
             ),
           ),
-          SwitchListTile(
-            title: const Text('Normalizacja Głośności (ReplayGain)', style: TextStyle(color: ResonXColors.textPrimary)),
-            subtitle: const Text('Wyrównuje poziom głośności między różnymi albumami i utworami', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 12)),
-            value: _normalizeVolume,
-            activeThumbColor: ResonXColors.cyberJade,
-            onChanged: (val) => setState(() => _normalizeVolume = val),
-          ),
-          SwitchListTile(
-            title: const Text('Aktywny Procesor Efektów DSP', style: TextStyle(color: ResonXColors.textPrimary)),
-            subtitle: Text(
-              dsp.isEnabled ? 'Włączony (Bass Boost: ${(dsp.bassBoostLevel * 100).toInt()}%, 3D: ${(dsp.spatialAudioLevel * 100).toInt()}%)' : 'Wyłączony',
-              style: const TextStyle(color: ResonXColors.cyberJade, fontSize: 12),
-            ),
-            value: dsp.isEnabled,
-            activeThumbColor: ResonXColors.cyberJade,
-            onChanged: (val) => dsp.setEnabled(val),
-          ),
-          ListTile(
-            title: const Text('Płynne Przejścia Utworów (Crossfade)', style: TextStyle(color: ResonXColors.textPrimary)),
-            subtitle: Text('${_crossfadeDuration.toStringAsFixed(1)} sekundy miksowania', style: const TextStyle(color: ResonXColors.neonCyan)),
-            trailing: SizedBox(
-              width: 180,
-              child: Slider(
-                value: _crossfadeDuration,
-                min: 0.0,
-                max: 12.0,
-                divisions: 12,
-                activeColor: ResonXColors.cyberJade,
-                onChanged: (val) => setState(() => _crossfadeDuration = val),
-              ),
-            ),
-          ),
-          const Divider(color: ResonXColors.cardBorder, height: 32),
+          const SizedBox(height: 24),
 
-          _buildSectionHeader('INTEGRACJA DISCORD RICH PRESENCE (CLIENT ID: 1542593239352221836)'),
-          SwitchListTile(
-            title: const Text('Pokazuj Aktualnie Słuchany Utwór na Discordzie', style: TextStyle(color: ResonXColors.textPrimary)),
-            subtitle: const Text('Wysyła tytuł, wykonawcę oraz okładkę bezpośrednio do Twojego profilu Discord', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 12)),
-            value: auth.session?.discordStatusEnabled ?? false,
-            activeThumbColor: ResonXColors.cyberJade,
-            onChanged: (val) {
-              auth.toggleDiscordStatus(val);
-              player.updateDiscordPresence();
-            },
-          ),
-          const Divider(color: ResonXColors.cardBorder, height: 32),
-
-          _buildSectionHeader('WYDAJNOŚĆ WINDOWS & PAMIĘĆ PODRĘCZNA'),
-          SwitchListTile(
-            title: const Text('Akceleracja Sprzętowa GPU (DirectX / Vulkan)', style: TextStyle(color: ResonXColors.textPrimary)),
-            value: _hardwareAcceleration,
-            activeThumbColor: ResonXColors.cyberJade,
-            onChanged: (val) => setState(() => _hardwareAcceleration = val),
-          ),
-          SwitchListTile(
-            title: const Text('Automatyczne Wznawianie Odtwarzania po Uruchomieniu', style: TextStyle(color: ResonXColors.textPrimary)),
-            value: _autoResume,
-            activeThumbColor: ResonXColors.cyberJade,
-            onChanged: (val) => setState(() => _autoResume = val),
-          ),
-          ListTile(
-            leading: const Icon(Icons.cleaning_services, color: ResonXColors.neonCyan),
-            title: const Text('Wyczyść Pamięć Podręczną Tekstów i Okładek', style: TextStyle(color: ResonXColors.textPrimary)),
-            trailing: OutlinedButton(
-              style: OutlinedButton.styleFrom(side: const BorderSide(color: ResonXColors.cardBorder)),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Wyczyszczono lokalny bufor pamięci podręcznej ResonX.')),
-                );
-              },
-              child: const Text('Wyczyść Cache', style: TextStyle(color: ResonXColors.textPrimary)),
+          _buildSectionHeader('WYDAJNOŚĆ URZĄDZENIA & PAMIĘĆ PODRĘCZNA'),
+          Container(
+            decoration: BoxDecoration(
+              color: ResonXColors.surfaceBlack,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: ResonXColors.cardBorder),
+            ),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('Akceleracja Sprzętowa Renderowania', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  value: _hardwareAcceleration,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) => setState(() => _hardwareAcceleration = val),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                SwitchListTile(
+                  title: const Text('Wysoki Priorytet Wątków Audio (Real-Time)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Zapobiega przerywaniu dźwięku przy obciążeniu procesora', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  value: _realtimeAudioPriority,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) => setState(() => _realtimeAudioPriority = val),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                SwitchListTile(
+                  title: const Text('Automatyczne Wznawianie Odtwarzania', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  value: _autoResume,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) => setState(() => _autoResume = val),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Bufor Strumienia Sieciowego', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                          Text('${_bufferLatencySeconds.toInt()} sekund', style: const TextStyle(color: ResonXColors.cyberJade, fontWeight: FontWeight.bold, fontSize: 13)),
+                        ],
+                      ),
+                      Slider(
+                        value: _bufferLatencySeconds,
+                        min: 1.0,
+                        max: 10.0,
+                        divisions: 9,
+                        activeColor: ResonXColors.cyberJade,
+                        inactiveColor: ResonXColors.deepGraphite,
+                        onChanged: (val) => setState(() => _bufferLatencySeconds = val),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                ListTile(
+                  leading: const Icon(Icons.cleaning_services_rounded, color: ResonXColors.neonCyan),
+                  title: const Text('Wyczyść Cache Tekstów i Okładek', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Usuwa tymczasowe pliki podręczne z pamięci', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  trailing: OutlinedButton(
+                    style: OutlinedButton.styleFrom(side: const BorderSide(color: ResonXColors.cardBorder)),
+                    onPressed: () {
+                      ApiService.instance.purgeAllCache();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Pomyślnie wyczyszczono pamięć podręczną ResonX!')),
+                      );
+                    },
+                    child: const Text('Wyczyść', style: TextStyle(color: Colors.white, fontSize: 12)),
+                  ),
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: 30),
         ],
       ),
     );
@@ -149,14 +286,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
+      padding: const EdgeInsets.only(bottom: 10.0, left: 4.0),
       child: Text(
         title,
         style: const TextStyle(
           color: ResonXColors.cyberJade,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1.3,
         ),
       ),
     );
