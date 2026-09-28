@@ -1,0 +1,49 @@
+name: resonx
+description: ResonX Cyber-Graphite Music Streaming & Offline Engine
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.2
+  dio: ^5.7.0
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  sqflite: ^2.4.1
+  flutter_secure_storage: ^9.2.2
+  crypto: ^3.0.7
+  discord_rich_presence: 1.1.1
+  url_launcher: ^6.3.2
+  youtube_explode_dart: ^2.2.1
+  sqflite_common_ffi: ^2.4.3
+  shared_preferences: ^2.3.2
+
+  # Zachowane dla zgodności z pozostałymi serwisami (DJ, DSP, ReplayGain)
+  just_audio: ^0.9.40
+  just_audio_windows: ^0.2.3
+
+  # Silnik MPV do bezbłędnego odtwarzania
+  media_kit: ^1.1.10
+  media_kit_libs_windows_audio: ^1.0.9
+  dart_des: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  image_path: "app_icon.ico"
+  android: true
+  windows:
+    generate: true
+    image_path: "windows/runner/resources/app_icon.ico"
+
+flutter:
+  uses-material-design: true
