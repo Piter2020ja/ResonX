@@ -51,24 +51,42 @@ class DownloaderService extends ChangeNotifier {
 
   final Dio _dio = Dio(
     BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(minutes: 5),
+      connectTimeout: const Duration(seconds: 20),
+      receiveTimeout: const Duration(minutes: 10),
+      headers: {
+        'User-Agent':
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1 ResonX/1.0',
+        'Referer': 'https://soundcloud.com/',
+        'Accept': '*/*',
+      },
     ),
   );
 
   final Map<String, DownloadTask> _activeDownloads = {};
   final Map<String, CancelToken> _cancelTokens = {};
   Directory? _storageDir;
+  bool _isBatchDownloading = false;
 
   Map<String, DownloadTask> get activeDownloads => Map.unmodifiable(_activeDownloads);
+  bool get isBatchDownloading => _isBatchDownloading;
 
   Future<void> _initDirectory() async {
     try {
-      final appDir = await getApplicationDocumentsDirectory();
-      _storageDir = Directory('${appDir.path}/ResonXOfflineStorage/AudioTracks');
+      Directory baseDir;
+      if (Platform.isIOS) {
+        baseDir = await getApplicationDocumentsDirectory();
+      } else if (Platform.isAndroid) {
+        baseDir = await getApplicationDocumentsDirectory();
+      } else {
+        baseDir = await getApplicationSupportDirectory();
+      }
+
+      _storageDir = Directory('${baseDir.path}/ResonXOfflineStorage/AudioTracks');
       if (!await _storageDir!.exists()) {
         await _storageDir!.create(recursive: true);
       }
+
+      await cleanTemporaryArtifacts();
       debugPrint('[ResonX Downloader Engine] Magazyn gotowy: ${_storageDir!.path}');
     } catch (e) {
       debugPrint('[ResonX Downloader Error] Błąd inicjalizacji katalogu pobierania: $e');
@@ -107,6 +125,58 @@ class DownloaderService extends ChangeNotifier {
   double getDownloadProgress(String trackId) {
     final task = _activeDownloads[trackId];
     return task != null ? task.progress : 0.0;
+  }
+
+  // Oblicza wagę wszystkich pobranych utworów offline w megabajtach (MB)
+  Future<double> calculateOfflineStorageSizeMb() async {
+    try {
+      if (_storageDir == null) await _initDirectory();
+      if (_storageDir != null && await _storageDir!.exists()) {
+        int totalBytes = 0;
+        final files = _storageDir!.listSync();
+        for (var entity in files) {
+          if (entity is File && entity.path.endsWith('.mp3')) {
+            totalBytes += entity.lengthSync();
+          }
+        }
+        return totalBytes / (1024 * 1024);
+      }
+    } catch (e) {
+      debugPrint('[ResonX Downloader] Błąd obliczania rozmiaru plików: $e');
+    }
+    return 0.0;
+  }
+
+  // Czyści pozostałości po przerwanych lub uszkodzonych pobraniach (.tmp)
+  Future<void> cleanTemporaryArtifacts() async {
+    try {
+      if (_storageDir != null && await _storageDir!.exists()) {
+        final files = _storageDir!.listSync();
+        for (var entity in files) {
+          if (entity is File && entity.path.endsWith('.tmp')) {
+            await entity.delete();
+            debugPrint('[ResonX Downloader] Usunięto uszkodzony plik tymczasowy: ${entity.path}');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[ResonX Downloader] Błąd czyszczenia plików .tmp: $e');
+    }
+  }
+
+  // Pobieranie całej listy utworów po kolei
+  Future<void> downloadBatch(List<Track> tracks) async {
+    _isBatchDownloading = true;
+    notifyListeners();
+
+    for (final track in tracks) {
+      if (!isDownloadedLocally(track.id)) {
+        await downloadTrack(track);
+      }
+    }
+
+    _isBatchDownloading = false;
+    notifyListeners();
   }
 
   Future<void> downloadTrack(Track track) async {
@@ -172,11 +242,17 @@ class DownloaderService extends ChangeNotifier {
       notifyListeners();
       debugPrint('[ResonX Downloader] Zakończono pobieranie utworu: ${track.title}');
     } catch (e) {
-      if (CancelToken.isCancel(e as DioException)) {
+      bool isCancelled = false;
+      if (e is DioException && CancelToken.isCancel(e)) {
+        isCancelled = true;
+      }
+
+      if (isCancelled) {
         debugPrint('[ResonX Downloader] Pobieranie anulowane: ${track.title}');
       } else {
         debugPrint('[ResonX Downloader Error] Błąd pobierania utworu ${track.title}: $e');
       }
+
       _activeDownloads[track.id] = DownloadTask(
         track: track,
         progress: 0.0,

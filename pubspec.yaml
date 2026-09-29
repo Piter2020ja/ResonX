@@ -24,15 +24,20 @@ dependencies:
   sqflite_common_ffi: ^2.4.3
   shared_preferences: ^2.3.2
   dart_des: ^1.0.2
+  package_info_plus: ^8.1.0
 
-  # Zachowane dla zgodności z pozostałymi serwisami
+  # Obsluga sesji audio (niezbedne dla odtwarzania w tle na iOS)
+  audio_session: ^0.1.21
+
+  # Zachowane dla zgodnosci z pozostalymi serwisami
   just_audio: ^0.9.40
   just_audio_windows: ^0.2.3
 
-  # Silnik MPV + biblioteki systemowe dla Windowsa i Androida
+  # Silnik MPV + biblioteki systemowe dla Windowsa, Androida oraz iOS
   media_kit: ^1.1.10
   media_kit_libs_windows_audio: ^1.0.9
   media_kit_libs_android_audio: ^1.0.4
+  media_kit_libs_ios_audio: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -43,6 +48,7 @@ dev_dependencies:
 flutter_launcher_icons:
   image_path: "app_icon.ico"
   android: true
+  ios: true
   windows:
     generate: true
     image_path: "windows/runner/resources/app_icon.ico"

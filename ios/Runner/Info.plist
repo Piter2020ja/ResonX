@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Resonx</string>
+	<string>ResonX</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,6 +26,33 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+
+	<!-- Odtwarzanie w tle i odbieranie zdarzen multimedialnych -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>fetch</string>
+	</array>
+
+	<!-- Obsluga pobierania i strumieniowania audio oraz okladek z sieci -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
+
+	<!-- Pozwolenie na dostep do plikow aplikacji w systemowej aplikacji Pliki (Files) na iOS -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
+	<!-- Uprawnienia sieciowe dla silnika odtwarzania -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ResonX wymaga dostępu do sieci lokalnej w celu buforowania i bezproblemowego odtwarzania strumieni audio.</string>
+
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

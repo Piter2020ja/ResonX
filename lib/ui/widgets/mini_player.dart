@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/lyrics_service.dart';
+import '../../main.dart';
 import '../screens/player_screen.dart';
 
 class MiniPlayer extends StatefulWidget {
@@ -23,7 +24,7 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
   bool _isQueueExpanded = false;
   bool _showLyricsOverlay = false;
   bool _isMuted = false;
-  double _volumeBeforeMute = 1.0;
+  double _volumeBeforeMute = 0.5;
   final List<double> _fftMagnitudes = List.generate(32, (index) => 0.1);
   Timer? _fftDecayTimer;
   final Random _random = Random();
@@ -57,6 +58,12 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
     _fftDecayTimer = Timer.periodic(const Duration(milliseconds: 60), (timer) {
       if (!mounted) return;
       final player = Provider.of<AudioPlayerService>(context, listen: false);
+      final battery = Provider.of<BatterySaverService>(context, listen: false);
+
+      if (battery.isBatterySaverEnabled) {
+        return;
+      }
+
       if (player.isPlaying) {
         setState(() {
           for (int i = 0; i < _fftMagnitudes.length; i++) {
@@ -103,10 +110,10 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
 
   void _toggleMute(AudioPlayerService player) {
     if (_isMuted) {
-      player.setVolume(_volumeBeforeMute);
+      player.setVolume(_volumeBeforeMute <= 0.0 ? 0.5 : _volumeBeforeMute);
       setState(() => _isMuted = false);
     } else {
-      _volumeBeforeMute = player.volume;
+      _volumeBeforeMute = player.volume <= 0.0 ? 0.5 : player.volume;
       player.setVolume(0.0);
       setState(() => _isMuted = true);
     }
@@ -251,7 +258,6 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
     );
   }
 
-  // DEDYKOWANE MOBILNE MENU ZAAWANSOWANE DLA SMARTFONA
   void _showMobileMoreControlsSheet(BuildContext context, AudioPlayerService player) {
     final track = player.currentTrack;
     if (track == null) return;
@@ -264,136 +270,137 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
         side: BorderSide(color: ResonXColors.cardBorder, width: 1.2),
       ),
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.tune, color: ResonXColors.cyberJade, size: 22),
-                      const SizedBox(width: 10),
-                      const Text(
-                        'Zaawansowane Kontrolki Audio',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: ResonXColors.textSecondary, size: 20),
-                        onPressed: () => Navigator.pop(ctx),
-                      ),
-                    ],
-                  ),
-                  const Divider(color: ResonXColors.cardBorder, height: 20),
-                  // Pasek regulacji głośności
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: Icon(
-                          _isMuted || player.volume == 0
-                              ? Icons.volume_off
-                              : (player.volume < 0.5 ? Icons.volume_down : Icons.volume_up),
-                          color: _isMuted ? ResonXColors.errorRed : ResonXColors.cyberJade,
-                          size: 22,
+        return Consumer<AudioPlayerService>(
+          builder: (context, livePlayer, child) {
+            final double currentVol = (livePlayer.volume > 0.0 ? livePlayer.volume : 0.5).clamp(0.0, 1.0);
+            final int displayPercent = (currentVol * 100).round();
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.tune, color: ResonXColors.cyberJade, size: 22),
+                        const SizedBox(width: 10),
+                        const Text(
+                          'Zaawansowane Kontrolki Audio',
+                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                         ),
-                        onPressed: () {
-                          _toggleMute(player);
-                          setModalState(() {});
-                        },
-                      ),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 3,
-                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                            activeTrackColor: ResonXColors.cyberJade,
-                            inactiveTrackColor: ResonXColors.deepGraphite,
-                            thumbColor: ResonXColors.cyberJade,
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: ResonXColors.textSecondary, size: 20),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: ResonXColors.cardBorder, height: 20),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            _isMuted || currentVol == 0.0
+                                ? Icons.volume_off
+                                : (currentVol < 0.5 ? Icons.volume_down : Icons.volume_up),
+                            color: _isMuted ? ResonXColors.errorRed : ResonXColors.cyberJade,
+                            size: 22,
                           ),
-                          child: Slider(
-                            value: player.volume,
-                            min: 0.0,
-                            max: 1.0,
-                            onChanged: (val) {
-                              if (_isMuted) setState(() => _isMuted = false);
-                              player.setVolume(val);
-                              setModalState(() {});
-                            },
+                          onPressed: () {
+                            _toggleMute(livePlayer);
+                          },
+                        ),
+                        Expanded(
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 3,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                              activeTrackColor: ResonXColors.cyberJade,
+                              inactiveTrackColor: ResonXColors.deepGraphite,
+                              thumbColor: ResonXColors.cyberJade,
+                            ),
+                            child: Slider(
+                              value: currentVol,
+                              min: 0.0,
+                              max: 1.0,
+                              onChanged: (val) {
+                                if (_isMuted) {
+                                  setState(() => _isMuted = false);
+                                }
+                                livePlayer.setVolume(val);
+                              },
+                            ),
                           ),
                         ),
-                      ),
-                      Text(
-                        '${(player.volume * 100).toInt()}%',
-                        style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  // Szybkie kafelki funkcyjne
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ActionChip(
-                        backgroundColor: ResonXColors.deepGraphite,
-                        avatar: Icon(Icons.subtitles, color: _showLyricsOverlay ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
-                        label: Text(_showLyricsOverlay ? 'Ukryj HUD Tekstu' : 'Pokaż Tekst Live', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        onPressed: () {
-                          setState(() => _showLyricsOverlay = !_showLyricsOverlay);
-                          Navigator.pop(ctx);
-                        },
-                      ),
-                      ActionChip(
-                        backgroundColor: ResonXColors.deepGraphite,
-                        avatar: const Icon(Icons.speed, color: ResonXColors.neonCyan, size: 18),
-                        label: Text('Prędkość: ${player.speed.toStringAsFixed(2)}x', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _showPlaybackSpeedDialog(context, player);
-                        },
-                      ),
-                      ActionChip(
-                        backgroundColor: ResonXColors.deepGraphite,
-                        avatar: Icon(Icons.bedtime, color: player.hasActiveSleepTimer ? ResonXColors.neonCyan : ResonXColors.textSecondary, size: 18),
-                        label: Text(player.hasActiveSleepTimer ? 'Timer: ${player.remainingSleepSeconds ~/ 60}m' : 'Sleep Timer', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _showSleepTimerDialog(context, player);
-                        },
-                      ),
-                      ActionChip(
-                        backgroundColor: ResonXColors.deepGraphite,
-                        avatar: Icon(Icons.queue_music, color: _isQueueExpanded ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
-                        label: Text('Kolejka (${player.queue.length})', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _toggleQueue();
-                        },
-                      ),
-                      ActionChip(
-                        backgroundColor: ResonXColors.deepGraphite,
-                        avatar: Icon(Icons.shuffle, color: player.isShuffleMode ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
-                        label: Text(player.isShuffleMode ? 'Shuffle WŁ.' : 'Shuffle WYŁ.', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        onPressed: () {
-                          player.toggleShuffle();
-                          setModalState(() {});
-                        },
-                      ),
-                      ActionChip(
-                        backgroundColor: ResonXColors.deepGraphite,
-                        avatar: Icon(Icons.repeat, color: player.isLoopMode ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
-                        label: Text(player.isLoopMode ? 'Pętla WŁ.' : 'Pętla WYŁ.', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        onPressed: () {
-                          player.toggleLoop();
-                          setModalState(() {});
-                        },
-                      ),
-                    ],
-                  ),
-                ],
+                        Text(
+                          '$displayPercent%',
+                          style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ActionChip(
+                          backgroundColor: ResonXColors.deepGraphite,
+                          avatar: Icon(Icons.subtitles, color: _showLyricsOverlay ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
+                          label: Text(_showLyricsOverlay ? 'Ukryj HUD Tekstu' : 'Pokaż Tekst Live', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          onPressed: () {
+                            setState(() => _showLyricsOverlay = !_showLyricsOverlay);
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                        ActionChip(
+                          backgroundColor: ResonXColors.deepGraphite,
+                          avatar: const Icon(Icons.speed, color: ResonXColors.neonCyan, size: 18),
+                          label: Text('Prędkość: ${livePlayer.speed.toStringAsFixed(2)}x', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _showPlaybackSpeedDialog(context, livePlayer);
+                          },
+                        ),
+                        ActionChip(
+                          backgroundColor: ResonXColors.deepGraphite,
+                          avatar: Icon(Icons.bedtime, color: livePlayer.hasActiveSleepTimer ? ResonXColors.neonCyan : ResonXColors.textSecondary, size: 18),
+                          label: Text(livePlayer.hasActiveSleepTimer ? 'Timer: ${livePlayer.remainingSleepSeconds ~/ 60}m' : 'Sleep Timer', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _showSleepTimerDialog(context, livePlayer);
+                          },
+                        ),
+                        ActionChip(
+                          backgroundColor: ResonXColors.deepGraphite,
+                          avatar: Icon(Icons.queue_music, color: _isQueueExpanded ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
+                          label: Text('Kolejka (${livePlayer.queue.length})', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _toggleQueue();
+                          },
+                        ),
+                        ActionChip(
+                          backgroundColor: ResonXColors.deepGraphite,
+                          avatar: Icon(Icons.shuffle, color: livePlayer.isShuffleMode ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
+                          label: Text(livePlayer.isShuffleMode ? 'Shuffle WŁ.' : 'Shuffle WYŁ.', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          onPressed: () {
+                            livePlayer.toggleShuffle();
+                          },
+                        ),
+                        ActionChip(
+                          backgroundColor: ResonXColors.deepGraphite,
+                          avatar: Icon(Icons.repeat, color: livePlayer.isLoopMode ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
+                          label: Text(livePlayer.isLoopMode ? 'Pętla WŁ.' : 'Pętla WYŁ.', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          onPressed: () {
+                            livePlayer.toggleLoop();
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -412,336 +419,346 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
 
     final maxDur = player.duration.inMilliseconds.toDouble();
     final curPos = player.position.inMilliseconds.toDouble().clamp(0.0, max(maxDur, 1.0)).toDouble();
+    final bool isTrackFav = player.favoriteTrackIds.contains(track.id);
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Sprawdzenie czy ekran to wąski telefon (Android/Mobile)
         final bool isMobile = constraints.maxWidth < 700;
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_isQueueExpanded) _buildQuickQueueDrawer(player),
-            if (_showLyricsOverlay) _buildLiveLyricsHud(lyricsService, player),
-            Container(
-              height: isMobile ? 88 : 104,
-              decoration: BoxDecoration(
-                color: ResonXColors.surfaceBlack.withValues(alpha: 0.96),
-                border: const Border(
-                  top: BorderSide(color: ResonXColors.cardBorder, width: 1.5),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: ResonXColors.cyberJade.withValues(alpha: player.isPlaying ? 0.12 : 0.02),
-                    blurRadius: 28,
-                    offset: const Offset(0, -6),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Pasek przewijania
-                  SizedBox(
-                    height: 5,
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 3,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
-                        activeTrackColor: ResonXColors.cyberJade,
-                        inactiveTrackColor: ResonXColors.deepGraphite,
+        return SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_isQueueExpanded) _buildQuickQueueDrawer(player),
+              if (_showLyricsOverlay) _buildLiveLyricsHud(lyricsService, player),
+              GestureDetector(
+                onVerticalDragEnd: (details) {
+                  if (details.primaryVelocity != null && details.primaryVelocity! < -200) {
+                    Navigator.of(context).push(
+                      PageRouteBuilder(
+                        pageBuilder: (_, __, ___) => const PlayerScreen(),
+                        transitionsBuilder: (_, animation, __, child) =>
+                            FadeTransition(opacity: animation, child: child),
                       ),
-                      child: Slider(
-                        value: curPos,
-                        min: 0.0,
-                        max: max(maxDur, 1.0),
-                        onChanged: (val) {
-                          player.seek(Duration(milliseconds: val.toInt()));
-                        },
-                      ),
+                    );
+                  }
+                },
+                child: Container(
+                  height: isMobile ? 88 : 104,
+                  decoration: BoxDecoration(
+                    color: ResonXColors.surfaceBlack.withValues(alpha: 0.96),
+                    border: const Border(
+                      top: BorderSide(color: ResonXColors.cardBorder, width: 1.5),
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: ResonXColors.cyberJade.withValues(alpha: player.isPlaying ? 0.12 : 0.02),
+                        blurRadius: 28,
+                        offset: const Offset(0, -6),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12.0 : 20.0),
-                      child: Row(
-                        children: [
-                          // Okładka z neonową poświatą
-                          AnimatedBuilder(
-                            animation: _glowAnimation,
-                            builder: (context, child) {
-                              return GestureDetector(
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    PageRouteBuilder(
-                                      pageBuilder: (_, __, ___) => const PlayerScreen(),
-                                      transitionsBuilder: (_, animation, __, child) =>
-                                          FadeTransition(opacity: animation, child: child),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 5,
+                        child: SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 3,
+                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
+                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
+                            activeTrackColor: ResonXColors.cyberJade,
+                            inactiveTrackColor: ResonXColors.deepGraphite,
+                          ),
+                          child: Slider(
+                            value: curPos,
+                            min: 0.0,
+                            max: max(maxDur, 1.0),
+                            onChanged: (val) {
+                              player.seek(Duration(milliseconds: val.toInt()));
+                            },
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: isMobile ? 12.0 : 20.0),
+                          child: Row(
+                            children: [
+                              AnimatedBuilder(
+                                animation: _glowAnimation,
+                                builder: (context, child) {
+                                  return GestureDetector(
+                                    onTap: () {
+                                      Navigator.of(context).push(
+                                        PageRouteBuilder(
+                                          pageBuilder: (_, __, ___) => const PlayerScreen(),
+                                          transitionsBuilder: (_, animation, __, child) =>
+                                              FadeTransition(opacity: animation, child: child),
+                                        ),
+                                      );
+                                    },
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(10),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: ResonXColors.cyberJade.withValues(
+                                              alpha: player.isPlaying ? _glowAnimation.value * 0.45 : 0.05,
+                                            ),
+                                            blurRadius: 18,
+                                            spreadRadius: 2,
+                                          ),
+                                        ],
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Image.network(
+                                          track.coverUrl,
+                                          width: isMobile ? 48 : 62,
+                                          height: isMobile ? 48 : 62,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Container(
+                                            width: isMobile ? 48 : 62,
+                                            height: isMobile ? 48 : 62,
+                                            color: ResonXColors.deepGraphite,
+                                            child: const Icon(Icons.music_note, color: ResonXColors.cyberJade),
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   );
                                 },
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: ResonXColors.cyberJade.withValues(
-                                          alpha: player.isPlaying ? _glowAnimation.value * 0.45 : 0.05,
-                                        ),
-                                        blurRadius: 18,
-                                        spreadRadius: 2,
+                              ),
+                              SizedBox(width: isMobile ? 10 : 16),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (_) => const PlayerScreen()),
+                                    );
+                                  },
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              track.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: ResonXColors.textPrimary,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: isMobile ? 13 : 14,
+                                                letterSpacing: 0.3,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            decoration: BoxDecoration(
+                                              color: ResonXColors.deepGraphite,
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(color: ResonXColors.cardBorder),
+                                            ),
+                                            child: Text(
+                                              track.fileFormat,
+                                              style: const TextStyle(
+                                                color: ResonXColors.cyberJade,
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
+                                      const SizedBox(height: 2),
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              track.artist,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '• ${_formatDuration(player.position)} / ${_formatDuration(player.duration)}',
+                                            style: const TextStyle(color: ResonXColors.neonCyan, fontSize: 10.5),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      _buildFull32BandSpectrum(),
                                     ],
                                   ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Image.network(
-                                      track.coverUrl,
-                                      width: isMobile ? 48 : 62,
-                                      height: isMobile ? 48 : 62,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Container(
-                                        width: isMobile ? 48 : 62,
-                                        height: isMobile ? 48 : 62,
-                                        color: ResonXColors.deepGraphite,
-                                        child: const Icon(Icons.music_note, color: ResonXColors.cyberJade),
+                                ),
+                              ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!isMobile)
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.shuffle,
+                                        color: player.isShuffleMode ? ResonXColors.cyberJade : ResonXColors.textSecondary,
+                                        size: 20,
                                       ),
+                                      tooltip: 'Smart Shuffle',
+                                      onPressed: player.toggleShuffle,
+                                    ),
+                                  IconButton(
+                                    icon: const Icon(Icons.skip_previous, color: ResonXColors.textPrimary, size: 26),
+                                    tooltip: 'Poprzedni utwór',
+                                    onPressed: player.playPreviousTrack,
+                                  ),
+                                  Container(
+                                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: const LinearGradient(
+                                        colors: [ResonXColors.cyberJade, ResonXColors.neonCyan],
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: ResonXColors.cyberJade.withValues(alpha: 0.5),
+                                          blurRadius: 14,
+                                        ),
+                                      ],
+                                    ),
+                                    child: IconButton(
+                                      icon: Icon(
+                                        player.isPlaying ? Icons.pause : Icons.play_arrow,
+                                        color: Colors.black,
+                                        size: isMobile ? 24 : 28,
+                                      ),
+                                      tooltip: player.isPlaying ? 'Wstrzymaj' : 'Odtwórz',
+                                      onPressed: player.togglePlayPause,
                                     ),
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-                          SizedBox(width: isMobile ? 10 : 16),
-                          // Dane utworu + spektrogram
-                          Expanded(
-                            child: InkWell(
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(builder: (_) => const PlayerScreen()),
-                                );
-                              },
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          track.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: ResonXColors.textPrimary,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: isMobile ? 13 : 14,
-                                            letterSpacing: 0.3,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                        decoration: BoxDecoration(
-                                          color: ResonXColors.deepGraphite,
-                                          borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(color: ResonXColors.cardBorder),
-                                        ),
-                                        child: Text(
-                                          track.fileFormat,
-                                          style: const TextStyle(
-                                            color: ResonXColors.cyberJade,
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                  IconButton(
+                                    icon: const Icon(Icons.skip_next, color: ResonXColors.textPrimary, size: 26),
+                                    tooltip: 'Następny utwór',
+                                    onPressed: player.playNextTrack,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Row(
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          track.artist,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5),
-                                        ),
+                                  if (!isMobile)
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.repeat,
+                                        color: player.isLoopMode ? ResonXColors.cyberJade : ResonXColors.textSecondary,
+                                        size: 20,
                                       ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        '• ${_formatDuration(player.position)} / ${_formatDuration(player.duration)}',
-                                        style: const TextStyle(color: ResonXColors.neonCyan, fontSize: 10.5),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  _buildFull32BandSpectrum(),
+                                      tooltip: 'Pętla utworu',
+                                      onPressed: player.toggleLoop,
+                                    ),
+                                  if (isMobile)
+                                    IconButton(
+                                      icon: const Icon(Icons.more_horiz_rounded, color: ResonXColors.neonCyan, size: 22),
+                                      tooltip: 'Więcej opcji odtwarzacza',
+                                      onPressed: () => _showMobileMoreControlsSheet(context, player),
+                                    ),
                                 ],
                               ),
-                            ),
-                          ),
-                          // Sekcja kontrolek (Przystosowana: na telefonie kompaktowa + przycisk "Więcej", na PC pełna)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (!isMobile)
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.shuffle,
-                                    color: player.isShuffleMode ? ResonXColors.cyberJade : ResonXColors.textSecondary,
-                                    size: 20,
-                                  ),
-                                  tooltip: 'Smart Shuffle',
-                                  onPressed: player.toggleShuffle,
-                                ),
-                              IconButton(
-                                icon: const Icon(Icons.skip_previous, color: ResonXColors.textPrimary, size: 26),
-                                tooltip: 'Poprzedni utwór',
-                                onPressed: player.playPreviousTrack,
-                              ),
-                              Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 4),
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: const LinearGradient(
-                                    colors: [ResonXColors.cyberJade, ResonXColors.neonCyan],
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: ResonXColors.cyberJade.withValues(alpha: 0.5),
-                                      blurRadius: 14,
+                              if (!isMobile) ...[
+                                const SizedBox(width: 14),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.subtitles,
+                                        color: _showLyricsOverlay ? ResonXColors.cyberJade : ResonXColors.textSecondary,
+                                        size: 20,
+                                      ),
+                                      tooltip: 'Pływające teksty na żywo (LRCLIB Sync)',
+                                      onPressed: () {
+                                        setState(() => _showLyricsOverlay = !_showLyricsOverlay);
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.speed, color: ResonXColors.textSecondary, size: 20),
+                                      tooltip: 'Regulator Pitch & Prędkości (0.5x - 2.0x)',
+                                      onPressed: () => _showPlaybackSpeedDialog(context, player),
+                                    ),
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.bedtime,
+                                        color: player.hasActiveSleepTimer ? ResonXColors.neonCyan : ResonXColors.textSecondary,
+                                        size: 20,
+                                      ),
+                                      tooltip: 'Sleep Timer (Wyłącznik czasowy)',
+                                      onPressed: () => _showSleepTimerDialog(context, player),
+                                    ),
+                                    IconButton(
+                                      icon: Icon(
+                                        _isMuted || player.volume == 0
+                                            ? Icons.volume_off
+                                            : (player.volume < 0.5 ? Icons.volume_down : Icons.volume_up),
+                                        color: _isMuted ? ResonXColors.errorRed : ResonXColors.textSecondary,
+                                        size: 20,
+                                      ),
+                                      tooltip: _isMuted ? 'Wyłącz wyciszenie' : 'Wycisz (Mute)',
+                                      onPressed: () => _toggleMute(player),
+                                    ),
+                                    SizedBox(
+                                      width: 88,
+                                      child: SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 3,
+                                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                                          activeTrackColor: ResonXColors.neonCyan,
+                                          inactiveTrackColor: ResonXColors.deepGraphite,
+                                          thumbColor: ResonXColors.neonCyan,
+                                        ),
+                                        child: Slider(
+                                          value: (player.volume > 0.0 ? player.volume : 0.5).clamp(0.0, 1.0),
+                                          min: 0.0,
+                                          max: 1.0,
+                                          onChanged: (val) {
+                                            if (_isMuted) setState(() => _isMuted = false);
+                                            player.setVolume(val);
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: Icon(
+                                        isTrackFav ? Icons.favorite : Icons.favorite_border,
+                                        color: isTrackFav ? Colors.redAccent : ResonXColors.textSecondary,
+                                        size: 22,
+                                      ),
+                                      tooltip: 'Ulubione',
+                                      onPressed: () => player.toggleFavorite(track),
+                                    ),
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.queue_music,
+                                        color: _isQueueExpanded ? ResonXColors.cyberJade : ResonXColors.textSecondary,
+                                        size: 22,
+                                      ),
+                                      tooltip: 'Podgląd kolejki odtwarzania',
+                                      onPressed: _toggleQueue,
                                     ),
                                   ],
                                 ),
-                                child: IconButton(
-                                  icon: Icon(
-                                    player.isPlaying ? Icons.pause : Icons.play_arrow,
-                                    color: Colors.black,
-                                    size: isMobile ? 24 : 28,
-                                  ),
-                                  tooltip: player.isPlaying ? 'Wstrzymaj' : 'Odtwórz',
-                                  onPressed: player.togglePlayPause,
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.skip_next, color: ResonXColors.textPrimary, size: 26),
-                                tooltip: 'Następny utwór',
-                                onPressed: player.playNextTrack,
-                              ),
-                              if (!isMobile)
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.repeat,
-                                    color: player.isLoopMode ? ResonXColors.cyberJade : ResonXColors.textSecondary,
-                                    size: 20,
-                                  ),
-                                  tooltip: 'Pętla utworu',
-                                  onPressed: player.toggleLoop,
-                                ),
-                              // Na telefonie: przycisk menu więcej opcji (wyciszanie, timer, prędkość)
-                              if (isMobile)
-                                IconButton(
-                                  icon: const Icon(Icons.more_horiz_rounded, color: ResonXColors.neonCyan, size: 22),
-                                  tooltip: 'Więcej opcji odtwarzacza',
-                                  onPressed: () => _showMobileMoreControlsSheet(context, player),
-                                ),
+                              ],
                             ],
                           ),
-                          // Prawa sekcja (wyświetlana tylko na monitorze PC)
-                          if (!isMobile) ...[
-                            const SizedBox(width: 14),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.subtitles,
-                                    color: _showLyricsOverlay ? ResonXColors.cyberJade : ResonXColors.textSecondary,
-                                    size: 20,
-                                  ),
-                                  tooltip: 'Pływające teksty na żywo (LRCLIB Sync)',
-                                  onPressed: () {
-                                    setState(() => _showLyricsOverlay = !_showLyricsOverlay);
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.speed, color: ResonXColors.textSecondary, size: 20),
-                                  tooltip: 'Regulator Pitch & Prędkości (0.5x - 2.0x)',
-                                  onPressed: () => _showPlaybackSpeedDialog(context, player),
-                                ),
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.bedtime,
-                                    color: player.hasActiveSleepTimer ? ResonXColors.neonCyan : ResonXColors.textSecondary,
-                                    size: 20,
-                                  ),
-                                  tooltip: 'Sleep Timer (Wyłącznik czasowy)',
-                                  onPressed: () => _showSleepTimerDialog(context, player),
-                                ),
-                                IconButton(
-                                  icon: Icon(
-                                    _isMuted || player.volume == 0
-                                        ? Icons.volume_off
-                                        : (player.volume < 0.5 ? Icons.volume_down : Icons.volume_up),
-                                    color: _isMuted ? ResonXColors.errorRed : ResonXColors.textSecondary,
-                                    size: 20,
-                                  ),
-                                  tooltip: _isMuted ? 'Wyłącz wyciszenie' : 'Wycisz (Mute)',
-                                  onPressed: () => _toggleMute(player),
-                                ),
-                                SizedBox(
-                                  width: 88,
-                                  child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 3,
-                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                                      activeTrackColor: ResonXColors.neonCyan,
-                                      inactiveTrackColor: ResonXColors.deepGraphite,
-                                      thumbColor: ResonXColors.neonCyan,
-                                    ),
-                                    child: Slider(
-                                      value: player.volume,
-                                      min: 0.0,
-                                      max: 1.0,
-                                      onChanged: (val) {
-                                        if (_isMuted) setState(() => _isMuted = false);
-                                        player.setVolume(val);
-                                      },
-                                    ),
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: Icon(
-                                    track.isFavorite ? Icons.favorite : Icons.favorite_border,
-                                    color: track.isFavorite ? Colors.redAccent : ResonXColors.textSecondary,
-                                    size: 22,
-                                  ),
-                                  tooltip: 'Ulubione',
-                                  onPressed: () => player.toggleFavorite(track),
-                                ),
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.queue_music,
-                                    color: _isQueueExpanded ? ResonXColors.cyberJade : ResonXColors.textSecondary,
-                                    size: 22,
-                                  ),
-                                  tooltip: 'Podgląd kolejki odtwarzania',
-                                  onPressed: _toggleQueue,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -776,6 +793,8 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
   }
 
   Widget _buildLiveLyricsHud(LyricsService lyricsService, AudioPlayerService player) {
+    final liveText = lyricsService.getLiveLine(player.position);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
@@ -789,7 +808,7 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              lyricsService.getLiveLine(player.position) ?? 'Wyszukiwanie tekstu LRCLIB w toku...',
+              liveText.isNotEmpty ? liveText : 'Wyszukiwanie tekstu LRCLIB w toku...',
               style: const TextStyle(
                 color: ResonXColors.textPrimary,
                 fontSize: 13,

@@ -1,10 +1,10 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class GithubUpdateService extends ChangeNotifier {
   static final GithubUpdateService instance = GithubUpdateService._internal();
@@ -20,19 +20,35 @@ class GithubUpdateService extends ChangeNotifier {
   String get latestVersion => _latestVersion;
 
   String _downloadUrl = '';
+  String get downloadUrl => _downloadUrl;
+
   String _releaseNotes = '';
   String get releaseNotes => _releaseNotes;
 
   bool _updateAvailable = false;
   bool get updateAvailable => _updateAvailable;
 
-  // Inicjalizacja i sprawdzenie wersji przy starcie
+  double _downloadProgress = 0.0;
+  double get downloadProgress => _downloadProgress;
+
+  bool _isDownloading = false;
+  bool get isDownloading => _isDownloading;
+
+  // Inicjalizacja i dynamiczne sprawdzenie zainstalowanej wersji z systemu
   Future<void> init() async {
     try {
-      _currentVersion = '2.4.0'; // Domyślna wersja produkcyjna ResonX
+      final info = await PackageInfo.fromPlatform();
+      if (info.version.isNotEmpty) {
+        _currentVersion = info.version;
+      } else {
+        _currentVersion = '2.4.0';
+      }
+      debugPrint('[GithubUpdate] Zainicjalizowano wersję ResonX: $_currentVersion');
     } catch (e) {
-      debugPrint('[GithubUpdate] Błąd inicjalizacji wersji: $e');
+      _currentVersion = '2.4.0'; // Domyślna wersja zapasowa
+      debugPrint('[GithubUpdate] Błąd inicjalizacji wersji z systemu, użyto domyślnej: $e');
     }
+    notifyListeners();
   }
 
   // Sprawdzanie aktualizacji z GitHub API
@@ -42,38 +58,49 @@ class GithubUpdateService extends ChangeNotifier {
 
     try {
       final url = Uri.parse('https://api.github.com/repos/Piter2020ja/ResonX/releases/latest');
-      final response = await http.get(url, headers: {'Accept': 'application/vnd.github.v3+json'});
+      final response = await http.get(
+        url,
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'ResonX-Updater-Client',
+        },
+      );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final tagName = data['tag_name'] as String? ?? 'v2.4.0';
         _releaseNotes = data['body'] as String? ?? 'Brak opisu zmian dla tej wersji.';
-        
+
         // Czyszczenie tagu z litery 'v' (np. v2.5.0 -> 2.5.0)
         _latestVersion = tagName.startsWith('v') ? tagName.substring(1) : tagName;
 
-        // Szukanie odpowiedniego pliku w assets (APK dla Androida lub ZIP dla Windowsa)
+        // Szukanie dedykowanego pliku dla konkretnej platformy (APK dla Androida, IPA dla iOS, ZIP/EXE dla Windowsa)
         final assets = data['assets'] as List<dynamic>? ?? [];
         _downloadUrl = '';
 
         for (var asset in assets) {
           final name = asset['name'].toString().toLowerCase();
+          final downloadUrl = asset['browser_download_url'] as String? ?? '';
+
           if (Platform.isAndroid && name.endsWith('.apk')) {
-            _downloadUrl = asset['browser_download_url'];
+            _downloadUrl = downloadUrl;
+            break;
+          } else if (Platform.isIOS && name.endsWith('.ipa')) {
+            _downloadUrl = downloadUrl;
             break;
           } else if (Platform.isWindows && (name.endsWith('.zip') || name.endsWith('.exe'))) {
-            _downloadUrl = asset['browser_download_url'];
+            _downloadUrl = downloadUrl;
             break;
           }
         }
 
-        // Jeśli nie znaleziono assetu, bierzemy domyślny link do release
+        // Jeśli nie znaleziono bezpośredniego pliku instalacyjnego, linkujemy do strony wydania na GitHubie
         if (_downloadUrl.isEmpty) {
           _downloadUrl = data['html_url'] ?? 'https://github.com/Piter2020ja/ResonX/releases';
         }
 
         _updateAvailable = _isVersionNewer(_latestVersion, _currentVersion);
-        debugPrint('[GithubUpdate] Obecna wersja: $_currentVersion, Najnowsza na GitHub: $_latestVersion, Dostępna: $_updateAvailable');
+        debugPrint('[GithubUpdate] Obecna wersja: $_currentVersion, Najnowsza na GitHub: $_latestVersion, Dostępna: $_updateAvailable, URL: $_downloadUrl');
 
         _isChecking = false;
         notifyListeners();
@@ -82,7 +109,13 @@ class GithubUpdateService extends ChangeNotifier {
           _showUpdateDialog(context);
         } else if (!_updateAvailable && showNoUpdateDialog && context != null && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('ResonX jest w najnowszej wersji!')),
+            const SnackBar(
+              backgroundColor: Color(0xFF161822),
+              content: Text(
+                'ResonX jest w najnowszej wersji!',
+                style: TextStyle(color: Color(0xFF00F2FE), fontWeight: FontWeight.bold),
+              ),
+            ),
           );
         }
 
@@ -97,7 +130,7 @@ class GithubUpdateService extends ChangeNotifier {
     return false;
   }
 
-  // Porównywanie wersji (np. 2.5.0 > 2.4.0)
+  // Porównywanie wersji semantycznych (np. 2.4.1 > 2.4.0)
   bool _isVersionNewer(String latest, String current) {
     try {
       List<int> lParts = latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
@@ -119,10 +152,22 @@ class GithubUpdateService extends ChangeNotifier {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF121212),
-        title: Text(
-          'Dostępna nowa wersja v$_latestVersion!',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+        backgroundColor: const Color(0xFF10121A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFF00F2FE), width: 1.2),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.system_update_rounded, color: Color(0xFF00F2FE), size: 24),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Dostępna wersja v$_latestVersion!',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+          ],
         ),
         content: SingleChildScrollView(
           child: Column(
@@ -130,24 +175,26 @@ class GithubUpdateService extends ChangeNotifier {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Masz obecnie wersję v$_currentVersion. Pobierz aktualizację, aby zyskać nowe funkcje i poprawki błędów.',
+                'Aktualna wersja: v$_currentVersion. Zainstaluj aktualizację, aby zachować pełną stabilność i otrzymać nowe funkcje.',
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               const Text(
-                'Co nowego:',
-                style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12),
+                'Co nowego w tej wersji:',
+                style: TextStyle(color: Color(0xFF00F2FE), fontWeight: FontWeight.bold, fontSize: 12),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Container(
+                width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white10),
                 ),
                 child: Text(
                   _releaseNotes,
-                  style: const TextStyle(color: Colors.white60, fontSize: 11.5),
+                  style: const TextStyle(color: Colors.white60, fontSize: 11.5, height: 1.4),
                 ),
               ),
             ],
@@ -159,55 +206,120 @@ class GithubUpdateService extends ChangeNotifier {
             child: const Text('Później', style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E676)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00F2FE),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () {
               Navigator.pop(ctx);
               executeDownloadAndInstall(context);
             },
-            child: const Text('Pobierz i aktualizuj', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            child: const Text('Pobierz i aktualizuj', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
 
-  // Pobieranie i uruchamianie instalacji
+  // Pobieranie i uruchamianie instalacji (Android, iOS, Windows)
   Future<void> executeDownloadAndInstall(BuildContext context) async {
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rozpoczęto pobieranie aktualizacji ResonX...')),
-      );
+      if (Platform.isAndroid || Platform.isIOS) {
+        _isDownloading = true;
+        _downloadProgress = 0.0;
+        notifyListeners();
 
-      if (Platform.isAndroid) {
-        // Pobieranie pliku APK do folderu tymczasowego
+        // Okienko dialogowe z postępem pobierania
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                backgroundColor: const Color(0xFF10121A),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Text(
+                  Platform.isAndroid ? 'Pobieranie paczki APK...' : 'Pobieranie paczki IPA...',
+                  style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    LinearProgressIndicator(
+                      value: _downloadProgress > 0 ? _downloadProgress : null,
+                      backgroundColor: Colors.white10,
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00F2FE)),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '${(_downloadProgress * 100).toStringAsFixed(1)}%',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+
+        final extension = Platform.isAndroid ? 'apk' : 'ipa';
         final dir = await getTemporaryDirectory();
-        final filePath = '${dir.path}/ResonX-v$_latestVersion.apk';
-        
-        final response = await http.get(Uri.parse(_downloadUrl));
-        if (response.statusCode == 200) {
-          final file = File(filePath);
-          await file.writeAsBytes(response.bodyBytes);
+        final filePath = '${dir.path}/ResonX-v$_latestVersion.$extension';
 
-          // Otwarcie pliku / wywołanie instalatora systemowego
-          final uri = Uri.file(filePath);
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
-          } else {
-            await launchUrl(Uri.parse(_downloadUrl), mode: LaunchMode.externalApplication);
+        final client = http.Client();
+        final request = http.Request('GET', Uri.parse(_downloadUrl));
+        final streamedResponse = await client.send(request);
+
+        final totalBytes = streamedResponse.contentLength ?? 0;
+        int receivedBytes = 0;
+        List<int> bytes = [];
+
+        await for (var chunk in streamedResponse.stream) {
+          bytes.addAll(chunk);
+          receivedBytes += chunk.length;
+          if (totalBytes > 0) {
+            _downloadProgress = receivedBytes / totalBytes;
+            notifyListeners();
           }
         }
+
+        final file = File(filePath);
+        await file.writeAsBytes(bytes);
+
+        _isDownloading = false;
+        notifyListeners();
+
+        // Zamknięcie okienka postępu
+        if (context.mounted && Navigator.canPop(context)) {
+          Navigator.pop(context);
+        }
+
+        // Uruchomienie pliku lub otwarcie w przeglądarce
+        final fileUri = Uri.file(filePath);
+        if (await canLaunchUrl(fileUri)) {
+          await launchUrl(fileUri, mode: LaunchMode.externalApplication);
+        } else {
+          await launchUrl(Uri.parse(_downloadUrl), mode: LaunchMode.externalApplication);
+        }
       } else {
-        // Na Windowsie otwórz przeglądarkę bezpośrednio pod adresem instalatora/zipa
+        // Na Windowsie otwórz przeglądarkę pod bezpośrednim adresem wydania/instalatora
         final uri = Uri.parse(_downloadUrl.isNotEmpty ? _downloadUrl : 'https://github.com/Piter2020ja/ResonX/releases');
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
-      debugPrint('[GithubUpdate] Błąd instalacji aktualizacji: $e');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Błąd pobierania: $e', style: const TextStyle(color: Colors.white))),
-        );
+      _isDownloading = false;
+      notifyListeners();
+
+      if (context.mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
       }
+
+      debugPrint('[GithubUpdate] Błąd instalacji aktualizacji: $e');
+
+      // Bezpieczny fallback – bezpośrednie przejście do GitHuba
+      final fallbackUri = Uri.parse(_downloadUrl.isNotEmpty ? _downloadUrl : 'https://github.com/Piter2020ja/ResonX/releases');
+      await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
     }
   }
 }

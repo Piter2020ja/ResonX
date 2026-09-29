@@ -20,87 +20,21 @@ class ShareDropSheet extends StatefulWidget {
     this.playlistTracks,
   }) : assert(track != null || playlistName != null, 'Należy podać utwór lub playlistę');
 
-  @override
-  State<ShareDropSheet> createState() => _ShareDropSheetState();
-}
-
-class _ShareDropSheetState extends State<ShareDropSheet> {
-  late String _sharePayload;
-  late String _dropCode;
-  bool _isCopied = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _generateRealShareData();
-  }
-
-  void _generateRealShareData() {
-    final Map<String, dynamic> data = {
-      'app': 'ResonX',
-      'v': 2,
-      'type': widget.playlistName != null ? 'playlist' : 'track',
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    };
-
-    if (widget.playlistName != null) {
-      data['name'] = widget.playlistName;
-      data['tracks'] = (widget.playlistTracks ?? []).map((t) => {
-        'id': t.id,
-        'title': t.title,
-        'artist': t.artist,
-        'album': t.album,
-        'audioUrl': t.audioUrl,
-        'coverUrl': t.coverUrl,
-        'durationSeconds': t.durationSeconds,
-      }).toList();
-    } else if (widget.track != null) {
-      data['track'] = {
-        'id': widget.track!.id,
-        'title': widget.track!.title,
-        'artist': widget.track!.artist,
-        'album': widget.track!.album,
-        'audioUrl': widget.track!.audioUrl,
-        'coverUrl': widget.track!.coverUrl,
-        'durationSeconds': widget.track!.durationSeconds,
-      };
-    }
-
-    final jsonStr = jsonEncode(data);
-    final base64Data = base64UrlEncode(utf8.encode(jsonStr));
-    _sharePayload = 'https://resonx.app/drop?data=$base64Data';
-
-    // Generowanie unikalnego kodu PIN pokoju ShareDrop
-    final hashSource = widget.playlistName ?? widget.track!.id;
-    final int codeNum = (hashSource.hashCode ^ DateTime.now().millisecondsSinceEpoch).abs() % 900000 + 100000;
-    _dropCode = 'RX-$codeNum';
-  }
-
-  void _copyShareLink(BuildContext context) {
-    Clipboard.setData(ClipboardData(text: _sharePayload));
-    setState(() => _isCopied = true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: const Color(0xFF161922),
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: ResonXColors.cyberJade, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                widget.playlistName != null
-                    ? 'Skopiowano odnośnik do playlisty "${widget.playlistName}" (${widget.playlistTracks?.length ?? 0} utworów)!'
-                    : 'Skopiowano odnośnik do utworu "${widget.track!.title}"!',
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        ),
+  /// Globalna metoda otwierająca arkusz udostępniania utworu lub playlisty
+  static void show(BuildContext context, {Track? track, String? playlistName, List<Track>? playlistTracks}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ShareDropSheet(
+        track: track,
+        playlistName: playlistName,
+        playlistTracks: playlistTracks,
       ),
     );
   }
 
-  // DIALOG ODBIERANIA / IMPORTOWANIA SHARE DROP Z BEZPIECZNYM ZAPISEM I ODTWARZANIEM
+  /// Globalny dialog odbierania i importowania z linku / kodu ShareDrop
   static void showReceiveDropDialog(BuildContext context) {
     final textController = TextEditingController();
 
@@ -173,7 +107,6 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
                     durationSeconds: m['durationSeconds'] ?? 0,
                   )).toList();
 
-                  // Zapis zaimportowanych utworów do historii / ulubionych w bazie
                   for (final t in tracks) {
                     await DatabaseService.instance.toggleFavorite(t);
                   }
@@ -225,6 +158,85 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
   }
 
   @override
+  State<ShareDropSheet> createState() => _ShareDropSheetState();
+}
+
+class _ShareDropSheetState extends State<ShareDropSheet> {
+  late String _sharePayload;
+  late String _dropCode;
+  bool _isCopied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _generateRealShareData();
+  }
+
+  void _generateRealShareData() {
+    final Map<String, dynamic> data = {
+      'app': 'ResonX',
+      'v': 2,
+      'type': widget.playlistName != null ? 'playlist' : 'track',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    if (widget.playlistName != null) {
+      data['name'] = widget.playlistName;
+      data['tracks'] = (widget.playlistTracks ?? []).map((t) => {
+        'id': t.id,
+        'title': t.title,
+        'artist': t.artist,
+        'album': t.album,
+        'audioUrl': t.audioUrl,
+        'coverUrl': t.coverUrl,
+        'durationSeconds': t.durationSeconds,
+      }).toList();
+    } else if (widget.track != null) {
+      data['track'] = {
+        'id': widget.track!.id,
+        'title': widget.track!.title,
+        'artist': widget.track!.artist,
+        'album': widget.track!.album,
+        'audioUrl': widget.track!.audioUrl,
+        'coverUrl': widget.track!.coverUrl,
+        'durationSeconds': widget.track!.durationSeconds,
+      };
+    }
+
+    final jsonStr = jsonEncode(data);
+    final base64Data = base64UrlEncode(utf8.encode(jsonStr));
+    _sharePayload = 'https://resonx.app/drop?data=$base64Data';
+
+    final hashSource = widget.playlistName ?? widget.track!.id;
+    final int codeNum = (hashSource.hashCode ^ DateTime.now().millisecondsSinceEpoch).abs() % 900000 + 100000;
+    _dropCode = 'RX-$codeNum';
+  }
+
+  void _copyShareLink(BuildContext context) {
+    Clipboard.setData(ClipboardData(text: _sharePayload));
+    setState(() => _isCopied = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF161922),
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: ResonXColors.cyberJade, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.playlistName != null
+                    ? 'Skopiowano odnośnik do playlisty "${widget.playlistName}" (${widget.playlistTracks?.length ?? 0} utworów)!'
+                    : 'Skopiowano odnośnik do utworu "${widget.track!.title}"!',
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final smart = SmartFeaturesService.instance;
     final isPlaylist = widget.playlistName != null;
@@ -264,7 +276,6 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
             ],
           ),
           const SizedBox(height: 12),
-          // Wizytówka udostępnianej treści
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -316,7 +327,6 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          // Prawdziwy, dynamicznie generowany kod macierzy QR
           Center(
             child: Container(
               width: 170,
@@ -404,7 +414,6 @@ class _ShareDropSheetState extends State<ShareDropSheet> {
   }
 }
 
-// NATYWNY GENERATOR MACIERZY QR Z DANYCH WEJŚCIOWYCH
 class _ResonXQrPatternPainter extends CustomPainter {
   final int dataSeed;
   _ResonXQrPatternPainter({required this.dataSeed});
@@ -421,7 +430,6 @@ class _ResonXQrPatternPainter extends CustomPainter {
 
     for (int r = 0; r < matrixSize; r++) {
       for (int c = 0; c < matrixSize; c++) {
-        // Trzy narożne celowniki QR
         final isTopLeftCorner = (r < 7 && c < 7);
         final isTopRightCorner = (r < 7 && c >= matrixSize - 7);
         final isBottomLeftCorner = (r >= matrixSize - 7 && c < 7);
@@ -434,7 +442,6 @@ class _ResonXQrPatternPainter extends CustomPainter {
             canvas.drawRect(Rect.fromLTWH(c * cellSize, r * cellSize, cellSize, cellSize), paint);
           }
         } else {
-          // Dynamiczne generowanie danych na podstawie seedu zawartości
           if (random.nextDouble() > 0.48) {
             canvas.drawRect(Rect.fromLTWH(c * cellSize, r * cellSize, cellSize - 0.5, cellSize - 0.5), paint);
           }

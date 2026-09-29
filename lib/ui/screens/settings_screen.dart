@@ -7,6 +7,9 @@ import '../../services/audio_player_service.dart';
 import '../../services/dsp_processor_service.dart';
 import '../../services/equalizer_service.dart';
 import '../../services/api_service.dart';
+import '../../services/downloader_service.dart';
+import '../../services/github_update_service.dart';
+import '../../main.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -25,8 +28,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoSkipSilence = true;
   bool _realtimeAudioPriority = true;
 
-  // --- Inteligentny Tryb Oszczędzania Baterii (Battery Saver / Low Power UI) ---
-  bool _batterySaverEnabled = false;
+  @override
+  void initState() {
+    super.initState();
+    final player = AudioPlayerService.instance;
+    _crossfadeDuration = player.crossfadeSeconds;
+    GithubUpdateService.instance.init();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +42,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final dsp = Provider.of<DspProcessorService>(context);
     final player = Provider.of<AudioPlayerService>(context);
     final eq = Provider.of<EqualizerService>(context);
+    final battery = Provider.of<BatterySaverService>(context);
+    final updater = Provider.of<GithubUpdateService>(context);
 
     final bool isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
@@ -99,6 +109,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     if (mounted) nav.pop();
                   },
                   child: Text(auth.isAuthenticated ? 'Wyloguj' : 'Gość Beta', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          _buildSectionHeader('SYSTEM & AKTUALIZACJE MULTIPLATFORMOWE'),
+          Container(
+            decoration: BoxDecoration(
+              color: ResonXColors.surfaceBlack,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: ResonXColors.cardBorder),
+            ),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.system_update_rounded, color: ResonXColors.neonCyan),
+                  title: const Text('Aktualizacje ResonX (GitHub OTA)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: Text(
+                    'Aktualna wersja: v${updater.currentVersion} (${Platform.operatingSystem.toUpperCase()})',
+                    style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5),
+                  ),
+                  trailing: updater.isChecking
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: ResonXColors.cyberJade),
+                        )
+                      : ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: ResonXColors.cyberJade,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () {
+                            updater.checkForUpdates(showNoUpdateDialog: true, context: context);
+                          },
+                          child: const Text('Sprawdź', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5)),
+                        ),
                 ),
               ],
             ),
@@ -179,7 +228,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         divisions: 12,
                         activeColor: ResonXColors.cyberJade,
                         inactiveColor: ResonXColors.deepGraphite,
-                        onChanged: (val) => setState(() => _crossfadeDuration = val),
+                        onChanged: (val) {
+                          setState(() => _crossfadeDuration = val);
+                          player.setCrossfadeDuration(val);
+                        },
                       ),
                     ],
                   ),
@@ -189,7 +241,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          // --- GRAFICZNY KOREKTOR DŹWIĘKU (5-BAND EQUALIZER UI) ---
           _buildSectionHeader('GRAFICZNY KOREKTOR DŹWIĘKU (EQ)'),
           Container(
             padding: const EdgeInsets.all(16),
@@ -213,7 +264,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                // Przyciski presetów EQ
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -231,7 +281,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Suwaki 5 pasm częstotliwości (60Hz, 230Hz, 910Hz, 4kHz, 14kHz)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
@@ -247,25 +296,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          _buildSectionHeader('INTEGRACJA DISCORD RICH PRESENCE'),
-          Container(
-            decoration: BoxDecoration(
-              color: ResonXColors.surfaceBlack,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: ResonXColors.cardBorder),
+          if (isDesktop) ...[
+            _buildSectionHeader('INTEGRACJA DISCORD RICH PRESENCE'),
+            Container(
+              decoration: BoxDecoration(
+                color: ResonXColors.surfaceBlack,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: ResonXColors.cardBorder),
+              ),
+              child: SwitchListTile(
+                title: const Text('Pokazuj Utwór na Discordzie', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                subtitle: const Text('Wysyła tytuł, wykonawcę oraz okładkę do profilu Discord (Client ID: 1542593239)', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                value: auth.session?.discordStatusEnabled ?? false,
+                activeThumbColor: ResonXColors.cyberJade,
+                onChanged: (val) {
+                  auth.toggleDiscordStatus(val);
+                  player.updateDiscordPresence();
+                },
+              ),
             ),
-            child: SwitchListTile(
-              title: const Text('Pokazuj Utwór na Discordzie', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
-              subtitle: const Text('Wysyła tytuł, wykonawcę oraz okładkę do profilu Discord (Client ID: 1542593239)', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
-              value: auth.session?.discordStatusEnabled ?? false,
-              activeThumbColor: ResonXColors.cyberJade,
-              onChanged: (val) {
-                auth.toggleDiscordStatus(val);
-                player.updateDiscordPresence();
-              },
-            ),
-          ),
-          const SizedBox(height: 24),
+            const SizedBox(height: 24),
+          ],
 
           _buildSectionHeader('WYDAJNOŚĆ URZĄDZENIA & PAMIĘĆ PODRĘCZNA'),
           Container(
@@ -276,20 +327,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Column(
               children: [
-                // --- Prawdziwy przełącznik Battery Saver / Low Power UI zintegrowany z aplikacją ---
                 SwitchListTile(
                   title: const Text('Inteligentne Oszczędzanie Baterii (Low Power UI)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
                   subtitle: const Text('Ogranicza animacje wizualizatora i obciążenie procesora w tle', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
-                  value: _batterySaverEnabled,
+                  value: battery.isBatterySaverEnabled,
                   activeThumbColor: ResonXColors.cyberJade,
                   onChanged: (val) {
-                    setState(() {
-                      _batterySaverEnabled = val;
-                    });
+                    battery.setBatterySaver(val);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(val ? 'Włączono oszczędzanie baterii. Ograniczono animacje.' : 'Wyłączono oszczędzanie baterii.'),
+                        content: Text(val ? 'Włączono tryb oszczędzania energii.' : 'Wyłączono tryb oszczędzania energii.'),
                         backgroundColor: ResonXColors.surfaceBlack,
+                        duration: const Duration(seconds: 2),
                       ),
                     );
                   },
@@ -348,11 +397,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('Usuwa tymczasowe pliki podręczne z pamięci', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
                   trailing: OutlinedButton(
                     style: OutlinedButton.styleFrom(side: const BorderSide(color: ResonXColors.cardBorder)),
-                    onPressed: () {
+                    onPressed: () async {
                       ApiService.instance.purgeAllCache();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Pomyślnie wyczyszczono pamięć podręczną ResonX!')),
-                      );
+                      await DownloaderService.instance.cleanTemporaryArtifacts();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Pomyślnie wyczyszczono pamięć podręczną ResonX!')),
+                        );
+                      }
                     },
                     child: const Text('Wyczyść', style: TextStyle(color: Colors.white, fontSize: 12)),
                   ),

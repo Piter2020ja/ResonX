@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- =================================================================== -->
     <!-- UPRAWNIENIA SYSTEMOWE (DLA SIECI, TŁA I ANDROIDA 14, 15, 16)       -->
@@ -14,8 +15,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <!-- Kluczowe uprawnienie do samoczynnej instalacji aktualizacji APK prosto z GitHub Releases -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Zabezpieczenie przed agresywnym ubijaniem odtwarzania przez zarzadzanie bateria producenta -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
-        android:label="resonx"
+        android:label="ResonX"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
@@ -49,8 +56,20 @@
         <receiver
             android:name="com.ryanheise.audioservice.MediaButtonReceiver"
             android:exported="true"
-            tools:node="remove" xmlns:tools="http://schemas.android.com/tools">
+            tools:node="remove">
         </receiver>
+
+        <!-- Dostawca plikow do bezpiecznego otwierania pobranych instalatorow APK na nowszych wersjach Androida -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths"
+                tools:replace="android:resource" />
+        </provider>
 
         <!-- Wewnętrzne metadane silnika Flutter -->
         <meta-data
@@ -59,12 +78,22 @@
     </application>
 
     <!-- =================================================================== -->
-    <!-- ZAPYTANIA O PAKIETY ZEWNĘTRZNE                                      -->
+    <!-- ZAPYTANIA O PAKIETY ZEWNĘTRZNE I INSTALATORY                       -->
     <!-- =================================================================== -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
+        </intent>
+        <!-- Zezwolenie na interakcje z systemowym instalatorem pakietow APK -->
+        <intent>
+            <action android:name="android.intent.action.INSTALL_PACKAGE" />
+            <data android:scheme="package" />
+        </intent>
+        <!-- Obsluga przegladarki i protokolu https -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
         </intent>
     </queries>
 

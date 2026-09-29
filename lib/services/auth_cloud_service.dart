@@ -147,9 +147,7 @@ class AuthCloudService extends ChangeNotifier {
 
       server.listen((HttpRequest request) async {
         final uri = request.uri;
-        request.response
-          ..headers.contentType = ContentType.html
-          ..write('''
+        const htmlContent = '''
             <!DOCTYPE html>
             <html>
               <head>
@@ -176,7 +174,10 @@ class AuthCloudService extends ChangeNotifier {
                 </div>
               </body>
             </html>
-          ''');
+          ''';
+        request.response
+          ..headers.contentType = ContentType.html
+          ..write(htmlContent);
         await request.response.close();
 
         if (uri.path == '/done') {
@@ -239,9 +240,7 @@ class AuthCloudService extends ChangeNotifier {
 
       server.listen((HttpRequest request) async {
         final uri = request.uri;
-        request.response
-          ..headers.contentType = ContentType.html
-          ..write('''
+        const htmlContent = '''
             <!DOCTYPE html>
             <html>
               <head>
@@ -268,7 +267,10 @@ class AuthCloudService extends ChangeNotifier {
                 </div>
               </body>
             </html>
-          ''');
+          ''';
+        request.response
+          ..headers.contentType = ContentType.html
+          ..write(htmlContent);
         await request.response.close();
 
         if (uri.path == '/done') {

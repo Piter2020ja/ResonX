@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:audio_session/audio_session.dart';
+import 'package:media_kit/media_kit.dart';
 import 'dart:io';
 
 import 'services/audio_player_service.dart';
@@ -22,7 +25,6 @@ import 'services/global_hotkeys_service.dart';
 import 'services/discord_rpc_service.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/widgets/resonx_welcome_setup_dialog.dart';
-import 'package:media_kit/media_kit.dart';
 
 // --- GLOBALNY SERWIS OSZCZĘDZANIA BATERII (BATTERY SAVER / LOW POWER UI) ---
 class BatterySaverService extends ChangeNotifier {
@@ -45,9 +47,63 @@ class BatterySaverService extends ChangeNotifier {
   }
 }
 
+/// Inicjalizacja konfiguracji sesji audio dla urządzeń mobilnych (iOS oraz Android)
+Future<void> _configureAudioSession() async {
+  try {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.music());
+
+    // Obsługa zdarzeń przerwania odtwarzania (np. połączenie przychodzące na iOS/Android)
+    session.interruptionEventStream.listen((event) {
+      if (event.begin) {
+        switch (event.type) {
+          case AudioInterruptionType.duck:
+            AudioPlayerService.instance.setVolume(AudioPlayerService.instance.volume * 0.5);
+            break;
+          case AudioInterruptionType.pause:
+          case AudioInterruptionType.unknown:
+            AudioPlayerService.instance.pause();
+            break;
+        }
+      } else {
+        switch (event.type) {
+          case AudioInterruptionType.duck:
+            AudioPlayerService.instance.setVolume(AudioPlayerService.instance.volume);
+            break;
+          case AudioInterruptionType.pause:
+            AudioPlayerService.instance.resume();
+            break;
+          case AudioInterruptionType.unknown:
+            break;
+        }
+      }
+    });
+
+    debugPrint('[ResonX AudioSession] Natywna sesja audio została skonfigurowana pomyślnie.');
+  } catch (e) {
+    debugPrint('[ResonX AudioSession] Błąd konfiguracji sesji audio: $e');
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+
+  // Konfiguracja przezroczystego paska stanu dla urządzeń mobilnych
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+      systemNavigationBarColor: Color(0xFF08090C),
+      systemNavigationBarIconBrightness: Brightness.light,
+    ),
+  );
+
+  // Inicjalizacja sesji audio dla mobilnego odtwarzania w tle
+  if (Platform.isIOS || Platform.isAndroid) {
+    await _configureAudioSession();
+  }
 
   // Wczytanie zapisanej sesji użytkownika z pamięci
   await AuthCloudService.instance.init();
@@ -68,9 +124,15 @@ void main() async {
     databaseFactory = databaseFactoryFfi;
   }
 
-  // Inicjalizacja globalnych serwisów Windows
-  GlobalHotkeysService.instance.initHotkeys();
-  DiscordRpcService.instance.initialize();
+  // Inicjalizacja serwisów desktopowych wyłącznie na komputerach
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    try {
+      GlobalHotkeysService.instance.initHotkeys();
+      DiscordRpcService.instance.initialize();
+    } catch (e) {
+      debugPrint('[ResonX Desktop] Błąd inicjalizacji rozszerzeń desktopowych: $e');
+    }
+  }
 
   runApp(
     MultiProvider(
