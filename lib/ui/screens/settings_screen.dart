@@ -27,13 +27,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _normalizeVolume = true;
   bool _autoSkipSilence = true;
   bool _realtimeAudioPriority = true;
+  bool _gaplessPlayback = true;
+  bool _systemMediaIslandEnabled = true;
 
   @override
   void initState() {
     super.initState();
-    final player = AudioPlayerService.instance;
-    _crossfadeDuration = player.crossfadeSeconds;
-    GithubUpdateService.instance.init();
+    try {
+      final player = AudioPlayerService.instance;
+      _crossfadeDuration = (player.crossfadeSeconds).clamp(0.0, 12.0);
+    } catch (_) {
+      _crossfadeDuration = 3.0;
+    }
+
+    try {
+      GithubUpdateService.instance.init();
+    } catch (_) {}
   }
 
   @override
@@ -115,6 +124,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
+          _buildSectionHeader('INTEGRACJA Z SYSTEMEM & WIDGETY'),
+          Container(
+            decoration: BoxDecoration(
+              color: ResonXColors.surfaceBlack,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: ResonXColors.cardBorder),
+            ),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('Dynamiczna Wyspa / Belka Medialna', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Integracja z wyspą HyperOS, Samsung Live Notification i paskiem stanu', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  value: _systemMediaIslandEnabled,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) {
+                    setState(() => _systemMediaIslandEnabled = val);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           _buildSectionHeader('SYSTEM & AKTUALIZACJE MULTIPLATFORMOWE'),
           Container(
             decoration: BoxDecoration(
@@ -183,8 +215,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(color: ResonXColors.cardBorder, height: 1),
                 SwitchListTile(
+                  title: const Text('Odtwarzanie Bez Przerw (Gapless Playback)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Płynne łączenie kolejnych utworów bez milisekund ciszy', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  value: _gaplessPlayback,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) => setState(() => _gaplessPlayback = val),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
+                SwitchListTile(
                   title: const Text('Normalizacja Głośności (ReplayGain)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
-                  subtitle: const Text('Wyrównuje poziom głośności między różnymi albumami i utworami', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  subtitle: const Text('Wyrównuje poziom głośności między różnymi albumami i utworami (-14 LUFS)', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
                   value: _normalizeVolume,
                   activeThumbColor: ResonXColors.cyberJade,
                   onChanged: (val) => setState(() => _normalizeVolume = val),
@@ -203,7 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(color: ResonXColors.cardBorder, height: 1),
                 SwitchListTile(
                   title: const Text('Inteligentne Pomijanie Ciszy i Intro', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
-                  subtitle: const Text('Automatycznie przycina martwe początki nagrań z SoundCloud', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  subtitle: const Text('Automatycznie przycina martwe początki nagrań ze strumieni', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
                   value: _autoSkipSilence,
                   activeThumbColor: ResonXColors.cyberJade,
                   onChanged: (val) => setState(() => _autoSkipSilence = val),
@@ -222,7 +262,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                       Slider(
-                        value: _crossfadeDuration,
+                        value: _crossfadeDuration.clamp(0.0, 12.0),
                         min: 0.0,
                         max: 12.0,
                         divisions: 12,
@@ -230,7 +270,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         inactiveColor: ResonXColors.deepGraphite,
                         onChanged: (val) {
                           setState(() => _crossfadeDuration = val);
-                          player.setCrossfadeDuration(val);
+                          try {
+                            player.setCrossfadeDuration(val);
+                          } catch (_) {}
                         },
                       ),
                     ],
@@ -306,7 +348,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               child: SwitchListTile(
                 title: const Text('Pokazuj Utwór na Discordzie', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
-                subtitle: const Text('Wysyła tytuł, wykonawcę oraz okładkę do profilu Discord (Client ID: 1542593239)', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                subtitle: const Text('Wysyła tytuł, wykonawcę oraz okładkę do profilu Discord', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
                 value: auth.session?.discordStatusEnabled ?? false,
                 activeThumbColor: ResonXColors.cyberJade,
                 onChanged: (val) {
@@ -379,7 +421,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                       Slider(
-                        value: _bufferLatencySeconds,
+                        value: _bufferLatencySeconds.clamp(1.0, 10.0),
                         min: 1.0,
                         max: 10.0,
                         divisions: 9,
@@ -398,12 +440,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   trailing: OutlinedButton(
                     style: OutlinedButton.styleFrom(side: const BorderSide(color: ResonXColors.cardBorder)),
                     onPressed: () async {
-                      ApiService.instance.purgeAllCache();
-                      await DownloaderService.instance.cleanTemporaryArtifacts();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Pomyślnie wyczyszczono pamięć podręczną ResonX!')),
-                        );
+                      try {
+                        ApiService.instance.purgeAllCache();
+                        await DownloaderService.instance.cleanTemporaryArtifacts();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Pomyślnie wyczyszczono pamięć podręczną ResonX!')),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Wystąpił błąd podczas czyszczenia: $e')),
+                          );
+                        }
                       }
                     },
                     child: const Text('Wyczyść', style: TextStyle(color: Colors.white, fontSize: 12)),
@@ -427,16 +477,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildEqSlider(String title, double value, ValueChanged<double> onChanged) {
+    final clampedVal = value.clamp(-12.0, 12.0);
     return Column(
       children: [
-        Text('${value > 0 ? '+' : ''}${value.toStringAsFixed(1)}dB', style: const TextStyle(color: Colors.white70, fontSize: 10)),
+        Text('${clampedVal > 0 ? '+' : ''}${clampedVal.toStringAsFixed(1)}dB', style: const TextStyle(color: Colors.white70, fontSize: 10)),
         const SizedBox(height: 4),
         SizedBox(
           height: 120,
           child: RotatedBox(
             quarterTurns: 3,
             child: Slider(
-              value: value,
+              value: clampedVal,
               min: -12.0,
               max: 12.0,
               divisions: 24,

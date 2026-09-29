@@ -16,14 +16,18 @@ class SettingsService extends ChangeNotifier {
   bool _autoDownloadFavorites = false;
   String _preferredAudioQuality = 'HQ (320kbps)';
   
-  // --- Prawdziwy stan oszczędzania baterii zintegrowany z plikiem konfiguracyjnym ---
+  // Stan oszczędzania baterii zintegrowany z plikiem konfiguracyjnym
   bool _batterySaverEnabled = false;
+
+  // --- Prawdziwy stan wykrywania ciszy i intro (Silence Trim / Intro Skip) ---
+  bool _silenceTrimEnabled = true;
 
   bool get ignoreAudioFocus => _ignoreAudioFocus;
   bool get pauseOnPhoneCall => _pauseOnPhoneCall;
   bool get autoDownloadFavorites => _autoDownloadFavorites;
   String get preferredAudioQuality => _preferredAudioQuality;
   bool get batterySaverEnabled => _batterySaverEnabled;
+  bool get silenceTrimEnabled => _silenceTrimEnabled;
 
   Future<File> _getSettingsFile() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -46,6 +50,7 @@ class SettingsService extends ChangeNotifier {
           _autoDownloadFavorites = data['auto_download_fav'] as bool? ?? false;
           _preferredAudioQuality = data['preferred_quality'] as String? ?? 'HQ (320kbps)';
           _batterySaverEnabled = data['battery_saver_enabled'] as bool? ?? false;
+          _silenceTrimEnabled = data['silence_trim_enabled'] as bool? ?? true;
           notifyListeners();
         }
       }
@@ -63,6 +68,7 @@ class SettingsService extends ChangeNotifier {
         'auto_download_fav': _autoDownloadFavorites,
         'preferred_quality': _preferredAudioQuality,
         'battery_saver_enabled': _batterySaverEnabled,
+        'silence_trim_enabled': _silenceTrimEnabled,
       };
       await file.writeAsString(jsonEncode(data));
     } catch (e) {
@@ -99,5 +105,13 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     await _saveSettings();
     debugPrint('[ResonX BatterySaver] Tryb oszczędzania baterii zapisany: $value');
+  }
+
+  // --- Metoda zapisująca i aktualizująca wykrywanie ciszy / intro ---
+  Future<void> setSilenceTrimEnabled(bool value) async {
+    _silenceTrimEnabled = value;
+    notifyListeners();
+    await _saveSettings();
+    debugPrint('[ResonX Settings] Wykrywanie ciszy i intro zaktualizowane: $value');
   }
 }

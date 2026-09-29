@@ -21,7 +21,38 @@ class ResonXTheme {
           primary: ResonXColors.cyberJade,
           secondary: ResonXColors.neonCyan,
           surface: ResonXColors.deepGraphite,
+          onSurface: ResonXColors.textPrimary,
         ),
         fontFamily: 'Roboto',
+        listTileTheme: const ListTileThemeData(
+          iconColor: ResonXColors.textSecondary,
+          textColor: ResonXColors.textPrimary,
+          selectedColor: ResonXColors.cyberJade,
+          tileColor: Colors.transparent,
+        ),
+        // Poprawione typowanie zgodne z Twoją wersją SDK Fluttera
+        dialogTheme: DialogThemeData(
+          backgroundColor: ResonXColors.surfaceBlack,
+          surfaceTintColor: Colors.transparent,
+          titleTextStyle: const TextStyle(
+            color: ResonXColors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+          contentTextStyle: const TextStyle(
+            color: ResonXColors.textSecondary,
+            fontSize: 16,
+          ),
+        ),
+        bottomSheetTheme: const BottomSheetThemeData(
+          backgroundColor: ResonXColors.surfaceBlack,
+          surfaceTintColor: Colors.transparent,
+          modalBackgroundColor: ResonXColors.surfaceBlack,
+        ),
+        cardTheme: CardThemeData(
+          color: ResonXColors.surfaceBlack,
+          surfaceTintColor: Colors.transparent,
+          elevation: 4,
+        ),
       );
 }

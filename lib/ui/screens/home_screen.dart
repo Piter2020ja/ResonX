@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
+import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 
 import '../../models/track.dart';
 import '../../models/user_session.dart';
@@ -53,27 +55,19 @@ class _HomeScreenState extends State<HomeScreen>
   String _selectedCategory = 'Polski Rap / Trap';
   String _selectedNav = 'catalog'; // 'catalog', 'favorites', 'downloads', 'playlists'
 
-  // Wybrana playlista w widoku playlist
   String? _activePlaylistName;
-
-  // Indeks mobilnego paska nawigacji (0: Katalogi, 1: Szukaj, 2: Ulubione, 3: Playlisty, 4: Narzędzia)
   int _mobileNavIndex = 0;
 
   bool _isDiscordRpcEnabled = true;
   bool _isLoadingNetworkTracks = false;
   Timer? _searchDebounceTimer;
 
-  // Prędkość odtwarzania (Playback Rate)
   double _currentPlaybackSpeed = 1.0;
-
-  // Automatyczne pomijanie ciszy na początku utworu
   bool _autoSkipSilenceIntro = true;
   int _defaultSilenceTrimSeconds = 2;
 
-  // Mapa zapamiętanych punktów startu piosenki (id utworu -> sekundy)
   final Map<String, int> _trackCustomStartOffsets = <String, int>{};
 
-  // Lokalny licznik statystyk ResonX Wrapped
   int _totalListenedSeconds = 18450;
   final Map<String, int> _artistPlayCounts = <String, int>{
     'Avi / Louis Villain': 42,
@@ -104,7 +98,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   final Set<String> _offlineDownloadedIds = <String>{};
 
-  // Dynamiczne zarządzanie playlistami i ich utworami
   final Map<String, List<Track>> _playlistTracksMap = <String, List<Track>>{
     'Ulubione Trap 2026': [],
     'Nocny Drill Katowice': [],
@@ -226,18 +219,15 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // PRAWDZIWA FUNKCJA ODŚWIEŻANIA SIECI I TOKENÓW (BEZ RESTARTU APLIKACJI)
   Future<void> _refreshNetworkStreams(BuildContext context) async {
     setState(() {
       _isLoadingNetworkTracks = true;
     });
 
     try {
-      // 1. Czyszczenie pamięci podręcznej i buforów sieciowych API
       ApiService.instance.purgeAllCache();
       debugPrint('[ResonX Network] Wyczyszczono cache strumieni oraz odświeżono tokeny.');
 
-      // 2. Ponowne pobranie danych dla obecnej kategorii lub zapytania
       final currentKeyword = _searchQuery.isNotEmpty 
           ? _searchQuery 
           : _selectedCategory.split('/')[0].trim();
@@ -327,7 +317,6 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  // MODAL USTAWIENIA PUNKTU STARTU UTWORU (POMIJANIE INTRO)
   void _showSetTrackStartOffsetModal(BuildContext context, Track track, AudioPlayerService playerService) {
     final currentOffset = _trackCustomStartOffsets[track.id] ?? 0;
     double sliderVal = currentOffset.toDouble();
@@ -372,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Ustaw, od której sekundy piosenka ma startować (omijając ciszę lub niechciany wstęp):',
+                    'Ustaw, od której sekundy piosenka ma startować (omijając ciszę lub wstęp):',
                     style: TextStyle(color: ResonXPalette.textSecondary, fontSize: 12.5),
                   ),
                   const SizedBox(height: 18),
@@ -475,7 +464,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // PRAWDZIWY SPOTIFY WRAPPED / STATYSTYKI RESONX (DZIAŁAJĄCY W 100% LOKALNIE)
   void _showStatsWrappedModal(BuildContext context, AudioPlayerService playerService) {
     final int totalMinutes = _totalListenedSeconds ~/ 60;
     final int totalHours = totalMinutes ~/ 60;
@@ -610,7 +598,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // DIALOG PRĘDKOŚCI ODTWARZANIA Z WŁASNYM PISANIEM
   void _showPlaybackSpeedModal(BuildContext context, AudioPlayerService playerService) {
     final textController = TextEditingController(text: _currentPlaybackSpeed.toStringAsFixed(2));
 
@@ -771,7 +758,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // DIALOG TWORZENIA NOWEJ PLAYLISTY
   void _showCreatePlaylistDialog(BuildContext context) {
     final playlistNameCtrl = TextEditingController();
 
@@ -821,7 +807,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // DIALOG DODAWANIA UTWORU DO WYBRANEJ PLAYLISTY
   void _showAddToPlaylistDialog(BuildContext context, Track track) {
     showDialog(
       context: context,
@@ -869,7 +854,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // MODAL LOGOWANIA - CZERWONE PRZYCISKI Z NAPISAMI BETA (ZABLOKOWANE)
   void _showAuthGateModal(BuildContext context) {
     showDialog(
       context: context,
@@ -923,7 +907,6 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   const SizedBox(height: 22),
-                  // Zablokowany czerwony przycisk Discord
                   InkWell(
                     onTap: () {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -964,7 +947,6 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   const SizedBox(height: 12),
-                  // Zablokowany czerwony przycisk Google
                   InkWell(
                     onTap: () {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1018,7 +1000,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // BRAMKA BEZPIECZEŃSTWA: PIN DO KONSOLI DEWELOPERSKIEJ
   void _requestAdminPinAccess(BuildContext context) {
     final pinController = TextEditingController();
 
@@ -1364,31 +1345,39 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 20),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       if (isLoggedIn)
-                        TextButton.icon(
-                          icon: const Icon(Icons.logout, color: ResonXPalette.neonCoral, size: 18),
-                          label: const Text('Wyloguj', style: TextStyle(color: ResonXPalette.neonCoral)),
-                          onPressed: () async {
-                            Navigator.pop(ctx);
-                            await context.read<AuthCloudService>().logout();
-                          },
+                        Expanded(
+                          child: TextButton.icon(
+                            icon: const Icon(Icons.logout, color: ResonXPalette.neonCoral, size: 18),
+                            label: const Text('Wyloguj', style: TextStyle(color: ResonXPalette.neonCoral)),
+                            onPressed: () async {
+                              Navigator.pop(ctx);
+                              await context.read<AuthCloudService>().logout();
+                            },
+                          ),
                         )
                       else
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5A1A1E)),
-                          icon: const Icon(Icons.lock, size: 16, color: ResonXPalette.neonCoral),
-                          label: const Text('Auth Gate (BETA)', style: TextStyle(color: Colors.white)),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _showAuthGateModal(context);
-                          },
+                        Expanded(
+                          flex: 3,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5A1A1E)),
+                            icon: const Icon(Icons.lock, size: 16, color: ResonXPalette.neonCoral),
+                            label: const Text('Auth Gate (BETA)', style: TextStyle(color: Colors.white, fontSize: 12), overflow: TextOverflow.ellipsis),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _showAuthGateModal(context);
+                            },
+                          ),
                         ),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: ResonXPalette.neonCyan, foregroundColor: Colors.black),
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Zamknij', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: ResonXPalette.neonCyan, foregroundColor: Colors.black),
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Zamknij', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
                       ),
                     ],
                   ),
@@ -1840,7 +1829,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // WIDOK DLA PC / DESKTOP (WINDOWS)
   Widget _buildDesktopLayout(List<Track> displayTracks, AudioPlayerService playerService) {
     return Row(
       children: [
@@ -1870,7 +1858,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // WIDOK DLA SMARTFONA (ANDROID)
   Widget _buildMobileLayout(List<Track> displayTracks, AudioPlayerService playerService, AuthCloudService authService) {
     switch (_mobileNavIndex) {
       case 0:
@@ -1946,7 +1933,6 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         );
       case 3:
-        // ZAAWANSOWANY MODUŁ PLAYLIST (TWORZENIE, USUWANIE, ZARZĄDZANIE PIOSENKAMI)
         return Column(
           children: [
             Padding(
@@ -2121,6 +2107,33 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               const SizedBox(height: 22),
               _buildMobileToolCard(
+                icon: Icons.open_in_browser_rounded,
+                title: 'Systemowa Pływająca Wyspa (Overlay)',
+                subtitle: 'Włącz/wyłącz pigułkę nad wszystkimi aplikacjami',
+                onTap: () async {
+                  final hasPerm = await FlutterOverlayWindow.isPermissionGranted();
+                  if (!hasPerm) {
+                    await FlutterOverlayWindow.requestPermission();
+                  } else {
+                    final isActive = await FlutterOverlayWindow.isActive();
+                    if (isActive) {
+                      await FlutterOverlayWindow.closeOverlay();
+                    } else {
+                      await FlutterOverlayWindow.showOverlay(
+                        enableDrag: true,
+                        overlayTitle: "ResonX Floating Island",
+                        overlayContent: 'Dynamiczny odtwarzacz w toku...',
+                        flag: OverlayFlag.defaultFlag,
+                        visibility: NotificationVisibility.visibilityPublic,
+                        positionGravity: PositionGravity.auto,
+                        height: 240,
+                        width: WindowSize.matchParent,
+                      );
+                    }
+                  }
+                },
+              ),
+              _buildMobileToolCard(
                 icon: Icons.auto_graph_rounded,
                 title: 'ResonX Wrapped & Statystyki (Live)',
                 subtitle: 'Pełne statystyki czasu i ulubionych wykonawców',
@@ -2254,7 +2267,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ZABEZPIECZONY NAGŁÓWEK - ZAWIERA TERAZ PRZYCISK ODŚWIEŻANIA SIECI OBOK LOGA
   Widget _buildResonXHeader(AuthCloudService authService, AudioPlayerService playerService) {
     final session = authService.session;
     final bool isLoggedIn = authService.isAuthenticated;
@@ -2311,7 +2323,6 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
               const SizedBox(width: 4),
-              // --- Prawdziwy, działający przycisk odświeżania sieci obok loga ---
               _buildHeaderIconButton(
                 icon: Icons.refresh_rounded,
                 tooltip: 'Odśwież sieć i tokeny strumieni',
@@ -2759,10 +2770,10 @@ class _ResonXTrackListTileState extends State<_ResonXTrackListTile> {
   @override
   Widget build(BuildContext context) {
     final bgColor = widget.isCurrent
-        ? ResonXPalette.neonCyan.withValues(alpha: 0.06)
+        ? ResonXPalette.neonCyan.withValues(alpha: 0.08)
         : (_isHovered ? ResonXPalette.surfaceCardHover : Colors.transparent);
 
-    final borderColor = widget.isCurrent ? ResonXPalette.neonCyan.withValues(alpha: 0.35) : Colors.transparent;
+    final borderColor = widget.isCurrent ? ResonXPalette.neonMint.withValues(alpha: 0.45) : Colors.transparent;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -2771,12 +2782,21 @@ class _ResonXTrackListTileState extends State<_ResonXTrackListTile> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          height: 60,
+          height: 62,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: borderColor, width: 1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: borderColor, width: 1.2),
+            boxShadow: widget.isCurrent
+                ? [
+                    BoxShadow(
+                      color: ResonXPalette.neonMint.withValues(alpha: 0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : [],
           ),
           child: Row(
             children: [
@@ -2787,16 +2807,16 @@ class _ResonXTrackListTileState extends State<_ResonXTrackListTile> {
                     borderRadius: BorderRadius.circular(6),
                     child: Image.network(
                       widget.track.coverUrl,
-                      width: 42,
-                      height: 42,
+                      width: 44,
+                      height: 44,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(width: 42, height: 42, color: ResonXPalette.surfaceCard),
+                      errorBuilder: (_, __, ___) => Container(width: 44, height: 44, color: ResonXPalette.surfaceCard),
                     ),
                   ),
                   if (widget.isCurrent || _isHovered)
                     Container(
-                      width: 42,
-                      height: 42,
+                      width: 44,
+                      height: 44,
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.55),
                         borderRadius: BorderRadius.circular(6),
@@ -2820,7 +2840,8 @@ class _ResonXTrackListTileState extends State<_ResonXTrackListTile> {
                       style: TextStyle(
                         color: widget.isCurrent ? ResonXPalette.neonMint : ResonXPalette.textPrimary,
                         fontSize: 13.5,
-                        fontWeight: widget.isCurrent ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: widget.isCurrent ? FontWeight.w800 : FontWeight.w500,
+                        letterSpacing: 0.2,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -2839,7 +2860,15 @@ class _ResonXTrackListTileState extends State<_ResonXTrackListTile> {
                         const SizedBox(width: 6),
                         const Text('•', style: TextStyle(color: ResonXPalette.textDim, fontSize: 10)),
                         const SizedBox(width: 6),
-                        const Text('HQ', style: TextStyle(color: ResonXPalette.neonMint, fontSize: 11, fontWeight: FontWeight.bold)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: ResonXPalette.surfaceSearchBar,
+                            borderRadius: BorderRadius.circular(3),
+                            border: Border.all(color: ResonXPalette.borderLight),
+                          ),
+                          child: const Text('HQ', style: TextStyle(color: ResonXPalette.neonMint, fontSize: 9.5, fontWeight: FontWeight.bold)),
+                        ),
                       ],
                     ),
                   ],

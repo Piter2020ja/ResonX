@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:audio_service/audio_service.dart';
+import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
 import '../models/track.dart';
 import 'api_service.dart';
@@ -16,7 +18,76 @@ enum ResonXRepeatMode {
   one,
 }
 
-// Wrapper dodajacy metody setUrl i stop kompatybilne z kodem UI
+// -----------------------------------------------------------------------------
+// NATYWNY SYSTEMOWY HANDLER DLA EKRANU BLOKADY I BELKI ANDROIDA (SPOTIFY STYLE)
+// -----------------------------------------------------------------------------
+class ResonXAudioHandler extends BaseAudioHandler with SeekHandler {
+  final AudioPlayerService _service;
+
+  ResonXAudioHandler(this._service);
+
+  @override
+  Future<void> play() async => await _service.resume();
+
+  @override
+  Future<void> pause() async => await _service.pause();
+
+  @override
+  Future<void> skipToNext() async => await _service.playNext();
+
+  @override
+  Future<void> skipToPrevious() async => await _service.playPrevious();
+
+  @override
+  Future<void> seek(Duration position) async => await _service.seek(position);
+
+  @override
+  Future<void> stop() async => await _service.stop();
+
+  void updateSystemNotification({
+    required Track track,
+    required bool isPlaying,
+    required Duration position,
+    required Duration duration,
+  }) {
+    mediaItem.add(
+      MediaItem(
+        id: track.id,
+        album: track.album,
+        title: track.title,
+        artist: track.artist,
+        duration: duration > Duration.zero ? duration : null,
+        artUri: track.coverUrl.isNotEmpty ? Uri.tryParse(track.coverUrl) : null,
+      ),
+    );
+
+    playbackState.add(
+      playbackState.value.copyWith(
+        controls: [
+          MediaControl.skipToPrevious,
+          if (isPlaying) MediaControl.pause else MediaControl.play,
+          MediaControl.skipToNext,
+          MediaControl.stop,
+        ],
+        systemActions: const {
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+        },
+        androidCompactActionIndices: const [0, 1, 2],
+        processingState: AudioProcessingState.ready,
+        playing: isPlaying,
+        updatePosition: position,
+        bufferedPosition: duration,
+        speed: _service.speed,
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// WRAPPER SILNIKA MEDIA_KIT
+// -----------------------------------------------------------------------------
 class ResonXPlayerWrapper {
   final Player _innerPlayer;
   ResonXPlayerWrapper(this._innerPlayer);
@@ -49,7 +120,6 @@ class ResonXPlayerWrapper {
     }
   }
 
-  // Przekazywanie podstawowych wywolan
   Future<void> open(Media media, {bool play = true}) => _innerPlayer.open(media, play: play);
   Future<void> play() => _innerPlayer.play();
   Future<void> pause() => _innerPlayer.pause();
@@ -62,6 +132,9 @@ class ResonXPlayerWrapper {
   dynamic get state => _innerPlayer.state;
 }
 
+// -----------------------------------------------------------------------------
+// GŁÓWNY SERWIS AUDIO
+// -----------------------------------------------------------------------------
 class AudioPlayerService extends ChangeNotifier {
   static final AudioPlayerService instance = AudioPlayerService._internal();
 
@@ -71,25 +144,27 @@ class AudioPlayerService extends ChangeNotifier {
 
   late final Player _rawPlayer;
   late final ResonXPlayerWrapper _wrappedPlayer;
+  ResonXAudioHandler? _systemAudioHandler;
 
   Track? _currentTrack;
   bool _isPlaying = false;
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
 
-  // Domyslna glosnosc startowa aplikacji: 50% (0.5)
   double _volume = 0.5;
   bool _isMuted = false;
   double _playbackSpeed = 1.0;
   ResonXRepeatMode _repeatMode = ResonXRepeatMode.off;
   bool _isShuffle = false;
 
-  // --- ZAAWANSOWANE TRYBY SPED UP / NIGHTCORE ORAZ CROSSFADE ---
   bool _isSpedUpActive = false;
   bool _isNightcoreActive = false;
   double _crossfadeSeconds = 3.0;
   Timer? _crossfadeTimer;
   bool _isCrossfading = false;
+
+  bool _gaplessPlayback = true;
+  double _bufferDurationSeconds = 3.0;
 
   final List<Track> _playlist = [];
   final List<Track> _originalOrderPlaylist = [];
@@ -97,12 +172,11 @@ class AudioPlayerService extends ChangeNotifier {
 
   final Set<String> _favoriteTrackIds = {};
 
-  // Wylacznik czasowy (Sleep Timer)
   Timer? _sleepTimer;
   int _remainingSleepSeconds = 0;
 
   // ---------------------------------------------------------------------------
-  // GETTERY DLA UI, WIDGETOW I VISUALIZERA
+  // GETTERY
   // ---------------------------------------------------------------------------
 
   ResonXPlayerWrapper get player => _wrappedPlayer;
@@ -118,6 +192,8 @@ class AudioPlayerService extends ChangeNotifier {
   bool get isSpedUpActive => _isSpedUpActive;
   bool get isNightcoreActive => _isNightcoreActive;
   double get crossfadeSeconds => _crossfadeSeconds;
+  bool get gaplessPlayback => _gaplessPlayback;
+  double get bufferDurationSeconds => _bufferDurationSeconds;
 
   ResonXRepeatMode get repeatMode => _repeatMode;
   bool get isShuffle => _isShuffle;
@@ -129,19 +205,37 @@ class AudioPlayerService extends ChangeNotifier {
   int get currentIndex => _currentIndex;
   Set<String> get favoriteTrackIds => _favoriteTrackIds;
 
-  // Sleep Timer Gettery
   bool get hasActiveSleepTimer => _sleepTimer != null && _sleepTimer!.isActive;
   int get remainingSleepSeconds => _remainingSleepSeconds;
 
-  // Strumienie zdarzen
   Stream<Duration> get positionStream => _rawPlayer.stream.position;
   Stream<bool> get playingStream => _rawPlayer.stream.playing;
   Stream<Duration> get durationStream => _rawPlayer.stream.duration;
   Stream<double> get volumeStream => _rawPlayer.stream.volume;
 
   // ---------------------------------------------------------------------------
-  // INICJALIZACJA SILNIKA
+  // SYSTEMOWA INICJALIZACJA POWIADOMIENIA (MEDIA STYLE)
   // ---------------------------------------------------------------------------
+
+  Future<void> initAudioService() async {
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+      try {
+        _systemAudioHandler = await AudioService.init(
+          builder: () => ResonXAudioHandler(this),
+          config: const AudioServiceConfig(
+            androidNotificationChannelId: 'com.resonx.channel.audio',
+            androidNotificationChannelName: 'ResonX Music Playback',
+            androidNotificationOngoing: true,
+            androidStopForegroundOnPause: true,
+            androidNotificationIcon: 'mipmap/ic_launcher',
+          ),
+        );
+        debugPrint('[ResonX AudioService] Serwis powiadomień mediów aktywny.');
+      } catch (e) {
+        debugPrint('[ResonX AudioService] Błąd AudioService.init: $e');
+      }
+    }
+  }
 
   void _initEngine() {
     _rawPlayer = Player(
@@ -152,12 +246,27 @@ class AudioPlayerService extends ChangeNotifier {
     );
     _wrappedPlayer = ResonXPlayerWrapper(_rawPlayer);
 
-    // Domyslne ustawienie glosnosci na 50%
     _rawPlayer.setVolume(_volume * 100.0);
+
+    // Odbieranie poleceń od pływającej wyspy poza aplikacją
+    if (!kIsWeb && Platform.isAndroid) {
+      FlutterOverlayWindow.overlayListener.listen((event) {
+        if (event is String) {
+          if (event == 'ACTION_TOGGLE') {
+            togglePlayPause();
+          } else if (event == 'ACTION_NEXT') {
+            playNext();
+          } else if (event == 'ACTION_PREV') {
+            playPrevious();
+          }
+        }
+      });
+    }
 
     _rawPlayer.stream.playing.listen((playing) {
       _isPlaying = playing;
       updateDiscordPresence();
+      _syncSystemMediaSession();
       notifyListeners();
     });
 
@@ -171,6 +280,7 @@ class AudioPlayerService extends ChangeNotifier {
     _rawPlayer.stream.duration.listen((dur) {
       if (dur > Duration.zero) {
         _totalDuration = dur;
+        _syncSystemMediaSession();
         notifyListeners();
       }
     });
@@ -181,8 +291,6 @@ class AudioPlayerService extends ChangeNotifier {
       }
     });
 
-    // Celowo nie nadpisujemy pola _volume ze strumienia silnika,
-    // aby media_kit nie zerowal wybranej glosnosci uzytkownika przy zmianie utworu.
     _rawPlayer.stream.volume.listen((vol) {});
 
     _syncFavorites();
@@ -198,7 +306,34 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // KOMPATYBILNOSC Z POPRZEDNIM JUST_AUDIO (setUrl, stop)
+  // SYNCHRONIZACJA Z SYSTEMEM: POWIADOMIENIE, EKRAN BLOKADY & FLOATING ISLAND
+  // ---------------------------------------------------------------------------
+
+  void _syncSystemMediaSession() {
+    if (_currentTrack == null) return;
+    try {
+      _systemAudioHandler?.updateSystemNotification(
+        track: _currentTrack!,
+        isPlaying: _isPlaying,
+        position: _currentPosition,
+        duration: _totalDuration,
+      );
+
+      if (!kIsWeb && Platform.isAndroid) {
+        FlutterOverlayWindow.shareData({
+          'title': _currentTrack!.title,
+          'artist': _currentTrack!.artist,
+          'coverUrl': _currentTrack!.coverUrl,
+          'isPlaying': _isPlaying,
+          'position': _currentPosition.inSeconds,
+          'duration': _totalDuration.inSeconds,
+        });
+      }
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------------------
+  // ODTWARZANIE UTWORÓW
   // ---------------------------------------------------------------------------
 
   Future<void> setUrl(String url) async {
@@ -210,12 +345,9 @@ class AudioPlayerService extends ChangeNotifier {
     _isPlaying = false;
     _currentPosition = Duration.zero;
     updateDiscordPresence();
+    _syncSystemMediaSession();
     notifyListeners();
   }
-
-  // ---------------------------------------------------------------------------
-  // GLOWNA METODA ODTWARZANIA UTWORU (ONLINE / OFFLINE)
-  // ---------------------------------------------------------------------------
 
   Future<void> playTrack(Track track, {List<Track>? contextPlaylist}) async {
     _currentTrack = track;
@@ -238,7 +370,6 @@ class AudioPlayerService extends ChangeNotifier {
 
     notifyListeners();
 
-    // 1. Sprawdzenie czy plik istnieje lokalnie na dysku (Offline)
     String playUri = '';
     bool isLocalFile = false;
     if (DownloaderService.instance.isDownloadedLocally(track.id)) {
@@ -250,7 +381,6 @@ class AudioPlayerService extends ChangeNotifier {
       }
     }
 
-    // 2. Pobieranie strumienia sieciowego
     if (playUri.isEmpty) {
       try {
         final streamData = await ApiService.instance.resolveDirectAudioStream(track);
@@ -261,10 +391,8 @@ class AudioPlayerService extends ChangeNotifier {
       }
     }
 
-    // 3. Pobranie tekstu utworu
     LyricsService.instance.loadLyricsForTrack(track);
 
-    // 4. Start odtwarzania z pelnymi naglowkami i zachowaniem poziomu glosnosci
     try {
       final Media mediaToPlay = isLocalFile
           ? Media(playUri)
@@ -280,8 +408,6 @@ class AudioPlayerService extends ChangeNotifier {
             );
 
       await _rawPlayer.open(mediaToPlay, play: true);
-
-      // Zapewniamy staly poziom glosnosci wybrany przez uzytkownika
       await _rawPlayer.setVolume(_isMuted ? 0.0 : _volume * 100.0);
 
       double targetSpeed = _playbackSpeed;
@@ -298,15 +424,22 @@ class AudioPlayerService extends ChangeNotifier {
 
       _isPlaying = true;
       updateDiscordPresence();
+      _syncSystemMediaSession();
       notifyListeners();
     } catch (e) {
       debugPrint('[ResonX Audio Engine Error] Blad podczas otwierania strumienia: $e');
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // ZAAWANSOWANA OBSLUGA SPED UP / NIGHTCORE
-  // ---------------------------------------------------------------------------
+  void setNetworkBuffer(double seconds) {
+    _bufferDurationSeconds = seconds.clamp(1.0, 15.0);
+    notifyListeners();
+  }
+
+  void setGaplessPlayback(bool enabled) {
+    _gaplessPlayback = enabled;
+    notifyListeners();
+  }
 
   Future<void> setSpedUpMode(bool enabled, [double targetSpeed = 1.25]) async {
     _isSpedUpActive = enabled;
@@ -332,12 +465,8 @@ class AudioPlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------------------------------------------------------------------------
-  // CROSSFADE
-  // ---------------------------------------------------------------------------
-
   void setCrossfadeDuration(double seconds) {
-    _crossfadeSeconds = seconds.clamp(0.0, 10.0);
+    _crossfadeSeconds = seconds.clamp(0.0, 12.0);
     notifyListeners();
   }
 
@@ -385,7 +514,7 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // KOLEJKA ODTWARZANIA
+  // KOLEJKA
   // ---------------------------------------------------------------------------
 
   void setQueue(List<Track> newTracks, {int startIndex = 0}) {
@@ -430,14 +559,31 @@ class AudioPlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void reorderQueue(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _playlist.length) return;
+    if (newIndex < 0 || newIndex > _playlist.length) return;
+
+    if (oldIndex < newIndex) {
+      newIndex -= 1;
+    }
+    final item = _playlist.removeAt(oldIndex);
+    _playlist.insert(newIndex, item);
+
+    if (_currentTrack != null) {
+      _currentIndex = _playlist.indexWhere((t) => t.id == _currentTrack!.id);
+    }
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------------------
-  // STEROWANIE ODTWARZANIEM
+  // STEROWANIE
   // ---------------------------------------------------------------------------
 
   Future<void> pause() async {
     await _rawPlayer.pause();
     _isPlaying = false;
     updateDiscordPresence();
+    _syncSystemMediaSession();
     notifyListeners();
   }
 
@@ -445,6 +591,7 @@ class AudioPlayerService extends ChangeNotifier {
     await _rawPlayer.play();
     _isPlaying = true;
     updateDiscordPresence();
+    _syncSystemMediaSession();
     notifyListeners();
   }
 
@@ -461,6 +608,7 @@ class AudioPlayerService extends ChangeNotifier {
     _currentPosition = targetPosition;
     LyricsService.instance.updatePlaybackPosition(targetPosition);
     updateDiscordPresence();
+    _syncSystemMediaSession();
     notifyListeners();
   }
 
@@ -488,10 +636,6 @@ class AudioPlayerService extends ChangeNotifier {
     await _rawPlayer.setRate(newSpeed);
     notifyListeners();
   }
-
-  // ---------------------------------------------------------------------------
-  // PETLA I SHUFFLE
-  // ---------------------------------------------------------------------------
 
   void toggleRepeatMode() {
     switch (_repeatMode) {
@@ -532,10 +676,6 @@ class AudioPlayerService extends ChangeNotifier {
     }
     notifyListeners();
   }
-
-  // ---------------------------------------------------------------------------
-  // PRZELACZANIE UTWOROW
-  // ---------------------------------------------------------------------------
 
   Future<void> playNextTrack() async => playNext();
   Future<void> playPreviousTrack() async => playPrevious();
@@ -581,18 +721,10 @@ class AudioPlayerService extends ChangeNotifier {
     playNext();
   }
 
-  // ---------------------------------------------------------------------------
-  // ULUBIONE
-  // ---------------------------------------------------------------------------
-
   Future<void> toggleFavorite(Track track) async {
     await DatabaseService.instance.toggleFavorite(track);
     _syncFavorites();
   }
-
-  // ---------------------------------------------------------------------------
-  // SLEEP TIMER
-  // ---------------------------------------------------------------------------
 
   void setSleepTimer(dynamic timeOrMinutes) {
     cancelSleepTimer();
@@ -625,10 +757,6 @@ class AudioPlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------------------------------------------------------------------------
-  // DISCORD RPC (WINDOWS)
-  // ---------------------------------------------------------------------------
-
   void updateDiscordPresence([dynamic trackOrDetails]) {
     if (!kIsWeb && Platform.isWindows) {
       try {
@@ -641,10 +769,6 @@ class AudioPlayerService extends ChangeNotifier {
       } catch (_) {}
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // AUDIO FOCUS
-  // ---------------------------------------------------------------------------
 
   void handleIncomingCallState(bool isCallOngoing) {
     if (!SettingsService.instance.pauseOnPhoneCall) return;

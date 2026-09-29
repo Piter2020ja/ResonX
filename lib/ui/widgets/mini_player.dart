@@ -132,54 +132,61 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
             Text('Sleep Timer (Wyłącznik czasowy)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 16)),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (player.hasActiveSleepTimer) ...[
-              Text(
-                'Aktywny timer: ${player.remainingSleepSeconds ~/ 60} min ${player.remainingSleepSeconds % 60} s',
-                style: const TextStyle(color: ResonXColors.cyberJade, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: ResonXColors.errorRed),
-                onPressed: () {
-                  player.cancelSleepTimer();
+        content: Material(
+          color: Colors.transparent,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (player.hasActiveSleepTimer) ...[
+                Text(
+                  'Aktywny timer: ${player.remainingSleepSeconds ~/ 60} min ${player.remainingSleepSeconds % 60} s',
+                  style: const TextStyle(color: ResonXColors.cyberJade, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: ResonXColors.errorRed),
+                  onPressed: () {
+                    player.cancelSleepTimer();
+                    Navigator.of(ctx).pop();
+                  },
+                  child: const Text('Anuluj Timer', style: TextStyle(color: Colors.white)),
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 24),
+              ],
+              ListTile(
+                tileColor: Colors.transparent,
+                title: const Text('15 minut', style: TextStyle(color: ResonXColors.textPrimary)),
+                onTap: () {
+                  player.setSleepTimer(const Duration(minutes: 15));
                   Navigator.of(ctx).pop();
                 },
-                child: const Text('Anuluj Timer', style: TextStyle(color: Colors.white)),
               ),
-              const Divider(color: ResonXColors.cardBorder, height: 24),
+              ListTile(
+                tileColor: Colors.transparent,
+                title: const Text('30 minut', style: TextStyle(color: ResonXColors.textPrimary)),
+                onTap: () {
+                  player.setSleepTimer(const Duration(minutes: 30));
+                  Navigator.of(ctx).pop();
+                },
+              ),
+              ListTile(
+                tileColor: Colors.transparent,
+                title: const Text('45 minut', style: TextStyle(color: ResonXColors.textPrimary)),
+                onTap: () {
+                  player.setSleepTimer(const Duration(minutes: 45));
+                  Navigator.of(ctx).pop();
+                },
+              ),
+              ListTile(
+                tileColor: Colors.transparent,
+                title: const Text('60 minut (1 godzina)', style: TextStyle(color: ResonXColors.textPrimary)),
+                onTap: () {
+                  player.setSleepTimer(const Duration(minutes: 60));
+                  Navigator.of(ctx).pop();
+                },
+              ),
             ],
-            ListTile(
-              title: const Text('15 minut', style: TextStyle(color: ResonXColors.textPrimary)),
-              onTap: () {
-                player.setSleepTimer(const Duration(minutes: 15));
-                Navigator.of(ctx).pop();
-              },
-            ),
-            ListTile(
-              title: const Text('30 minut', style: TextStyle(color: ResonXColors.textPrimary)),
-              onTap: () {
-                player.setSleepTimer(const Duration(minutes: 30));
-                Navigator.of(ctx).pop();
-              },
-            ),
-            ListTile(
-              title: const Text('45 minut', style: TextStyle(color: ResonXColors.textPrimary)),
-              onTap: () {
-                player.setSleepTimer(const Duration(minutes: 45));
-                Navigator.of(ctx).pop();
-              },
-            ),
-            ListTile(
-              title: const Text('60 minut (1 godzina)', style: TextStyle(color: ResonXColors.textPrimary)),
-              onTap: () {
-                player.setSleepTimer(const Duration(minutes: 60));
-                Navigator.of(ctx).pop();
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -200,52 +207,55 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
               Text('Prędkość & Pitch DSP', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 16)),
             ],
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${tempSpeed.toStringAsFixed(2)}x',
-                style: const TextStyle(color: ResonXColors.cyberJade, fontSize: 24, fontWeight: FontWeight.w900),
-              ),
-              Slider(
-                value: tempSpeed,
-                min: 0.5,
-                max: 2.0,
-                divisions: 15,
-                activeColor: ResonXColors.cyberJade,
-                inactiveColor: ResonXColors.deepGraphite,
-                onChanged: (val) {
-                  setDialogState(() => tempSpeed = val);
-                  player.setPlaybackSpeed(val);
-                },
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  TextButton(
-                    onPressed: () {
-                      setDialogState(() => tempSpeed = 0.8);
-                      player.setPlaybackSpeed(0.8);
-                    },
-                    child: const Text('0.8x (Slowed)', style: TextStyle(color: ResonXColors.neonCyan)),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      setDialogState(() => tempSpeed = 1.0);
-                      player.setPlaybackSpeed(1.0);
-                    },
-                    child: const Text('1.0x (Standard)', style: TextStyle(color: ResonXColors.cyberJade)),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      setDialogState(() => tempSpeed = 1.25);
-                      player.setPlaybackSpeed(1.25);
-                    },
-                    child: const Text('1.25x (Speed Up)', style: TextStyle(color: ResonXColors.neonCyan)),
-                  ),
-                ],
-              ),
-            ],
+          content: Material(
+            color: Colors.transparent,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${tempSpeed.toStringAsFixed(2)}x',
+                  style: const TextStyle(color: ResonXColors.cyberJade, fontSize: 24, fontWeight: FontWeight.w900),
+                ),
+                Slider(
+                  value: tempSpeed,
+                  min: 0.5,
+                  max: 2.0,
+                  divisions: 15,
+                  activeColor: ResonXColors.cyberJade,
+                  inactiveColor: ResonXColors.deepGraphite,
+                  onChanged: (val) {
+                    setDialogState(() => tempSpeed = val);
+                    player.setPlaybackSpeed(val);
+                  },
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        setDialogState(() => tempSpeed = 0.8);
+                        player.setPlaybackSpeed(0.8);
+                      },
+                      child: const Text('0.8x (Slowed)', style: TextStyle(color: ResonXColors.neonCyan)),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setDialogState(() => tempSpeed = 1.0);
+                        player.setPlaybackSpeed(1.0);
+                      },
+                      child: const Text('1.0x (Standard)', style: TextStyle(color: ResonXColors.cyberJade)),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setDialogState(() => tempSpeed = 1.25);
+                        player.setPlaybackSpeed(1.25);
+                      },
+                      child: const Text('1.25x (Speed Up)', style: TextStyle(color: ResonXColors.neonCyan)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -276,130 +286,133 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
             final int displayPercent = (currentVol * 100).round();
 
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.tune, color: ResonXColors.cyberJade, size: 22),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'Zaawansowane Kontrolki Audio',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: ResonXColors.textSecondary, size: 20),
-                          onPressed: () => Navigator.pop(ctx),
-                        ),
-                      ],
-                    ),
-                    const Divider(color: ResonXColors.cardBorder, height: 20),
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: Icon(
-                            _isMuted || currentVol == 0.0
-                                ? Icons.volume_off
-                                : (currentVol < 0.5 ? Icons.volume_down : Icons.volume_up),
-                            color: _isMuted ? ResonXColors.errorRed : ResonXColors.cyberJade,
-                            size: 22,
+              child: Material(
+                color: Colors.transparent,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.tune, color: ResonXColors.cyberJade, size: 22),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'Zaawansowane Kontrolki Audio',
+                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                           ),
-                          onPressed: () {
-                            _toggleMute(livePlayer);
-                          },
-                        ),
-                        Expanded(
-                          child: SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              trackHeight: 3,
-                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                              activeTrackColor: ResonXColors.cyberJade,
-                              inactiveTrackColor: ResonXColors.deepGraphite,
-                              thumbColor: ResonXColors.cyberJade,
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: ResonXColors.textSecondary, size: 20),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                        ],
+                      ),
+                      const Divider(color: ResonXColors.cardBorder, height: 20),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              _isMuted || currentVol == 0.0
+                                  ? Icons.volume_off
+                                  : (currentVol < 0.5 ? Icons.volume_down : Icons.volume_up),
+                              color: _isMuted ? ResonXColors.errorRed : ResonXColors.cyberJade,
+                              size: 22,
                             ),
-                            child: Slider(
-                              value: currentVol,
-                              min: 0.0,
-                              max: 1.0,
-                              onChanged: (val) {
-                                if (_isMuted) {
-                                  setState(() => _isMuted = false);
-                                }
-                                livePlayer.setVolume(val);
-                              },
+                            onPressed: () {
+                              _toggleMute(livePlayer);
+                            },
+                          ),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 3,
+                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                activeTrackColor: ResonXColors.cyberJade,
+                                inactiveTrackColor: ResonXColors.deepGraphite,
+                                thumbColor: ResonXColors.cyberJade,
+                              ),
+                              child: Slider(
+                                value: currentVol,
+                                min: 0.0,
+                                max: 1.0,
+                                onChanged: (val) {
+                                  if (_isMuted) {
+                                    setState(() => _isMuted = false);
+                                  }
+                                  livePlayer.setVolume(val);
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                        Text(
-                          '$displayPercent%',
-                          style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ActionChip(
-                          backgroundColor: ResonXColors.deepGraphite,
-                          avatar: Icon(Icons.subtitles, color: _showLyricsOverlay ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
-                          label: Text(_showLyricsOverlay ? 'Ukryj HUD Tekstu' : 'Pokaż Tekst Live', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                          onPressed: () {
-                            setState(() => _showLyricsOverlay = !_showLyricsOverlay);
-                            Navigator.pop(ctx);
-                          },
-                        ),
-                        ActionChip(
-                          backgroundColor: ResonXColors.deepGraphite,
-                          avatar: const Icon(Icons.speed, color: ResonXColors.neonCyan, size: 18),
-                          label: Text('Prędkość: ${livePlayer.speed.toStringAsFixed(2)}x', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _showPlaybackSpeedDialog(context, livePlayer);
-                          },
-                        ),
-                        ActionChip(
-                          backgroundColor: ResonXColors.deepGraphite,
-                          avatar: Icon(Icons.bedtime, color: livePlayer.hasActiveSleepTimer ? ResonXColors.neonCyan : ResonXColors.textSecondary, size: 18),
-                          label: Text(livePlayer.hasActiveSleepTimer ? 'Timer: ${livePlayer.remainingSleepSeconds ~/ 60}m' : 'Sleep Timer', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _showSleepTimerDialog(context, livePlayer);
-                          },
-                        ),
-                        ActionChip(
-                          backgroundColor: ResonXColors.deepGraphite,
-                          avatar: Icon(Icons.queue_music, color: _isQueueExpanded ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
-                          label: Text('Kolejka (${livePlayer.queue.length})', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _toggleQueue();
-                          },
-                        ),
-                        ActionChip(
-                          backgroundColor: ResonXColors.deepGraphite,
-                          avatar: Icon(Icons.shuffle, color: livePlayer.isShuffleMode ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
-                          label: Text(livePlayer.isShuffleMode ? 'Shuffle WŁ.' : 'Shuffle WYŁ.', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                          onPressed: () {
-                            livePlayer.toggleShuffle();
-                          },
-                        ),
-                        ActionChip(
-                          backgroundColor: ResonXColors.deepGraphite,
-                          avatar: Icon(Icons.repeat, color: livePlayer.isLoopMode ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
-                          label: Text(livePlayer.isLoopMode ? 'Pętla WŁ.' : 'Pętla WYŁ.', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                          onPressed: () {
-                            livePlayer.toggleLoop();
-                          },
-                        ),
-                      ],
-                    ),
-                  ],
+                          Text(
+                            '$displayPercent%',
+                            style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ActionChip(
+                            backgroundColor: ResonXColors.deepGraphite,
+                            avatar: Icon(Icons.subtitles, color: _showLyricsOverlay ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
+                            label: Text(_showLyricsOverlay ? 'Ukryj HUD Tekstu' : 'Pokaż Tekst Live', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            onPressed: () {
+                              setState(() => _showLyricsOverlay = !_showLyricsOverlay);
+                              Navigator.pop(ctx);
+                            },
+                          ),
+                          ActionChip(
+                            backgroundColor: ResonXColors.deepGraphite,
+                            avatar: const Icon(Icons.speed, color: ResonXColors.neonCyan, size: 18),
+                            label: Text('Prędkość: ${livePlayer.speed.toStringAsFixed(2)}x', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _showPlaybackSpeedDialog(context, livePlayer);
+                            },
+                          ),
+                          ActionChip(
+                            backgroundColor: ResonXColors.deepGraphite,
+                            avatar: Icon(Icons.bedtime, color: livePlayer.hasActiveSleepTimer ? ResonXColors.neonCyan : ResonXColors.textSecondary, size: 18),
+                            label: Text(livePlayer.hasActiveSleepTimer ? 'Timer: ${livePlayer.remainingSleepSeconds ~/ 60}m' : 'Sleep Timer', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _showSleepTimerDialog(context, livePlayer);
+                            },
+                          ),
+                          ActionChip(
+                            backgroundColor: ResonXColors.deepGraphite,
+                            avatar: Icon(Icons.queue_music, color: _isQueueExpanded ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
+                            label: Text('Kolejka (${livePlayer.queue.length})', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _toggleQueue();
+                            },
+                          ),
+                          ActionChip(
+                            backgroundColor: ResonXColors.deepGraphite,
+                            avatar: Icon(Icons.shuffle, color: livePlayer.isShuffleMode ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
+                            label: Text(livePlayer.isShuffleMode ? 'Shuffle WŁ.' : 'Shuffle WYŁ.', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            onPressed: () {
+                              livePlayer.toggleShuffle();
+                            },
+                          ),
+                          ActionChip(
+                            backgroundColor: ResonXColors.deepGraphite,
+                            avatar: Icon(Icons.repeat, color: livePlayer.isLoopMode ? ResonXColors.cyberJade : ResonXColors.textSecondary, size: 18),
+                            label: Text(livePlayer.isLoopMode ? 'Pętla WŁ.' : 'Pętla WYŁ.', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            onPressed: () {
+                              livePlayer.toggleLoop();
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -830,7 +843,7 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
 
   Widget _buildQuickQueueDrawer(AudioPlayerService player) {
     return Container(
-      height: 240,
+      height: 250,
       width: double.infinity,
       decoration: const BoxDecoration(
         color: ResonXColors.deepGraphite,
@@ -839,87 +852,105 @@ class _MiniPlayerState extends State<MiniPlayer> with TickerProviderStateMixin {
           bottom: BorderSide(color: ResonXColors.cardBorder, width: 1),
         ),
       ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: ResonXColors.surfaceBlack,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.queue_music, color: ResonXColors.cyberJade, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      'KOLEJKA ODTWARZANIA (${player.queue.length})',
-                      style: const TextStyle(
-                        color: ResonXColors.textPrimary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
+      child: Material(
+        color: Colors.transparent,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: ResonXColors.surfaceBlack,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.queue_music, color: ResonXColors.cyberJade, size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        'KOLEJKA ODTWARZANIA (${player.queue.length})',
+                        style: const TextStyle(
+                          color: ResonXColors.textPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                TextButton(
-                  onPressed: _toggleQueue,
-                  child: const Text('Zwiń', style: TextStyle(color: ResonXColors.neonCyan)),
-                ),
-              ],
+                    ],
+                  ),
+                  TextButton(
+                    onPressed: _toggleQueue,
+                    child: const Text('Zwiń', style: TextStyle(color: ResonXColors.neonCyan)),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: player.queue.length,
-              itemBuilder: (context, index) {
-                final item = player.queue[index];
-                final isCurrent = index == player.currentIndex;
+            Expanded(
+              child: ReorderableListView.builder(
+                physics: const BouncingScrollPhysics(),
+                itemCount: player.queue.length,
+                onReorder: (oldIndex, newIndex) {
+                  player.reorderQueue(oldIndex, newIndex);
+                },
+                itemBuilder: (context, index) {
+                  final item = player.queue[index];
+                  final isCurrent = index == player.currentIndex;
 
-                return ListTile(
-                  dense: true,
-                  leading: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Image.network(
-                      item.coverUrl,
-                      width: 36,
-                      height: 36,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 36,
-                        height: 36,
-                        color: ResonXColors.surfaceBlack,
-                        child: const Icon(Icons.music_note, color: ResonXColors.cyberJade, size: 16),
+                  return Material(
+                    key: ValueKey('queue_item_${item.id}_$index'),
+                    color: isCurrent ? ResonXColors.cyberJade.withValues(alpha: 0.08) : Colors.transparent,
+                    child: ListTile(
+                      dense: true,
+                      tileColor: Colors.transparent,
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: Image.network(
+                          item.coverUrl,
+                          width: 36,
+                          height: 36,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 36,
+                            height: 36,
+                            color: ResonXColors.surfaceBlack,
+                            child: const Icon(Icons.music_note, color: ResonXColors.cyberJade, size: 16),
+                          ),
+                        ),
                       ),
+                      title: Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isCurrent ? ResonXColors.cyberJade : ResonXColors.textPrimary,
+                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 13,
+                        ),
+                      ),
+                      subtitle: Text(
+                        item.artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 11),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isCurrent)
+                            const Icon(Icons.volume_up, color: ResonXColors.cyberJade, size: 18),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.drag_handle_rounded, color: Colors.white24, size: 20),
+                        ],
+                      ),
+                      onTap: () {
+                        player.playTrack(item);
+                      },
                     ),
-                  ),
-                  title: Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isCurrent ? ResonXColors.cyberJade : ResonXColors.textPrimary,
-                      fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                      fontSize: 13,
-                    ),
-                  ),
-                  subtitle: Text(
-                    item.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 11),
-                  ),
-                  trailing: isCurrent
-                      ? const Icon(Icons.volume_up, color: ResonXColors.cyberJade, size: 18)
-                      : null,
-                  onTap: () {
-                    player.playTrack(item);
-                  },
-                );
-              },
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

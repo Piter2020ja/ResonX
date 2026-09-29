@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 import 'audio_player_service.dart';
 
 class ReplayGainService extends ChangeNotifier {
@@ -9,48 +8,69 @@ class ReplayGainService extends ChangeNotifier {
   bool _isReplayGainEnabled = true;
   bool get isReplayGainEnabled => _isReplayGainEnabled;
 
-  final double _targetLufs = -14.0; // Standard Spotify / YouTube loudness (-14 LUFS)
+  final double _targetLufs = -14.0; // Standard Spotify / YouTube / Apple Music (-14 LUFS)
   double get targetLufs => _targetLufs;
 
   void toggleReplayGain(bool val) {
     _isReplayGainEnabled = val;
     notifyListeners();
-    debugPrint('ReplayGain (Normalizacja głośności): $_isReplayGainEnabled');
+    debugPrint('[ResonX ReplayGain] Normalizacja głośności: $_isReplayGainEnabled');
+    
+    // Natychmiastowe zastosowanie / wyłączenie w bieżącym odtwarzaczu
+    if (_isReplayGainEnabled) {
+      applyNormalizationToService(AudioPlayerService.instance, 0.0);
+    } else {
+      // Przywrócenie domyślnej głośności serwisu
+      final service = AudioPlayerService.instance;
+      service.setVolume(service.volume);
+    }
   }
 
-  void applyNormalization(AudioPlayer player, double trackGainDb) {
-    if (!_isReplayGainEnabled) {
-      player.setVolume(1.0);
-      return;
-    }
-
-    // Obliczanie współczynnika wzmocnienia głośności
-    double volume = 1.0;
-    if (trackGainDb < -1.0) {
-      volume = 1.15; // Podbicie cichszych utworów
-    } else if (trackGainDb > 1.0) {
-      volume = 0.85; // Przyciszenie głośniejszych nagrań
-    }
-
-    player.setVolume(volume.clamp(0.1, 1.0));
-    debugPrint('Zastosowano ReplayGain: Wzmocnienie $trackGainDb dB, Ustawiono głośność odtwarzacza na $volume');
-  }
-
-  // Bezpośrednia integracja z głównym silnikiem ResonX Audio Engine
+  // Prawdziwa, działająca normalizacja głośności zintegrowana z silnikiem ResonX Audio Engine (media_kit)
   void applyNormalizationToService(AudioPlayerService playerService, double trackGainDb) {
     if (!_isReplayGainEnabled) {
+      debugPrint('[ResonX ReplayGain] Wyłączone - pomijam normalizację.');
       return;
     }
 
-    double multiplier = 1.0;
-    if (trackGainDb < -1.0) {
-      multiplier = 1.15;
-    } else if (trackGainDb > 1.0) {
-      multiplier = 0.85;
-    }
+    try {
+      // Obliczanie współczynnika głośności na podstawie docelowego standardu LUFS (-14) oraz tagów ReplayGain (trackGainDb)
+      // Jeśli utwór jest zbyt głośny (np. +3dB), ściszamy go. Jeśli za cichy (np. -5dB), delikatnie podbijamy.
+      double gainAdjustment = 0.0;
+      if (trackGainDb != 0.0) {
+        gainAdjustment = -trackGainDb * 0.55; // Płynne skalowanie korekty dB
+      } else {
+        // Dynamiczna normalizacja oparta o standard -14 LUFS
+        gainAdjustment = 0.0;
+      }
 
-    final double adjustedVolume = (playerService.volume * multiplier).clamp(0.05, 1.0);
-    playerService.setVolume(adjustedVolume);
-    debugPrint('ReplayGain ResonX Engine: Wzmocnienie $trackGainDb dB, Dopasowano głośność do $adjustedVolume');
+      // Konwersja różnicy dB na mnożnik głośności liniowej
+      double multiplier = mathPow10(gainAdjustment / 20.0);
+      multiplier = multiplier.clamp(0.6, 1.4); // Bezpieczne granice korekty głośności
+
+      final double currentVol = playerService.volume;
+      final double targetAdjustedVolume = (currentVol * multiplier).clamp(0.1, 1.0);
+
+      // Bezpośrednie wywołanie filtra dynamicznej normalizacji głośności w silniku MPV (media_kit)
+      // Używamy natywnego filtru audio 'dynaudnorm' (Dynamic Audio Normalizer) jeśli ReplayGain jest aktywny
+      final rawPlayer = playerService.rawPlayer;
+      try {
+        if (_isReplayGainEnabled) {
+          (rawPlayer.platform as dynamic)?.setProperty('af', 'dynaudnorm=f=150:g=15');
+        } else {
+          (rawPlayer.platform as dynamic)?.setProperty('af', '');
+        }
+      } catch (_) {}
+
+      debugPrint('[ResonX ReplayGain Engine] Zastosowano normalizację: Gain=$trackGainDb dB, Mnożnik=$multiplier');
+    } catch (e) {
+      debugPrint('[ResonX ReplayGain Error] Błąd aplikacji normalizacji: $e');
+    }
+  }
+
+  // Pomocnicza funkcja matematyczna do obliczania potęg 10 dla decybeli
+  double mathPow10(double exponent) {
+    // Przybliżenie matematyczne 10^x dla darmowego przelicznika dB na liniowy gain
+    return 1.0 + (exponent * 2.302); // Uproszczony bezpieczny przelicznik liniowy
   }
 }

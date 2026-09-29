@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../services/security_service.dart';
@@ -48,117 +49,140 @@ class _AdminPanelDialogState extends State<AdminPanelDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+
     return Dialog(
       backgroundColor: ResonXColors.surfaceBlack,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: const BorderSide(color: ResonXColors.cardBorder, width: 1.5),
       ),
-      child: Container(
-        width: 520,
-        padding: const EdgeInsets.all(28.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: math.min(screenSize.width - 28.0, 480.0),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 22.0),
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(Icons.terminal, color: ResonXColors.neonCyan, size: 28),
-                const SizedBox(width: 12),
-                const Text(
-                  'ResonX CEO Console & Diagnostics',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: ResonXColors.textPrimary,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.close, color: ResonXColors.textSecondary),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            if (!_isUnlocked) ...[
-              const Text(
-                'Wprowadź Master PIN Administratora (CEO PIN), aby odblokować pełne uprawnienia diagnostyczne:',
-                style: TextStyle(color: ResonXColors.textSecondary, fontSize: 14),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _pinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: ResonXColors.textPrimary, letterSpacing: 4),
-                decoration: InputDecoration(
-                  labelText: 'PIN (np. 7895)',
-                  labelStyle: const TextStyle(color: ResonXColors.textSecondary),
-                  filled: true,
-                  fillColor: ResonXColors.deepGraphite,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ResonXColors.neonCyan,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                onPressed: _verifyPin,
-                child: const Text('Odblokuj Konsolę', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            ] else ...[
-              _buildMetricTile('Status Sesji', 'CEO Master Access Active', ResonXColors.cyberJade),
-              _buildMetricTile('Audio Pipeline', 'just_audio / 44.1kHz 320kbps', ResonXColors.neonCyan),
-              _buildMetricTile('Discord RPC Client', '1542593239352221836 (Active)', const Color(0xFF5865F2)),
-              _buildMetricTile('Kolejka odtwarzacza', '${AudioPlayerService.instance.queue.length} pozycji', ResonXColors.textPrimary),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: ResonXColors.cardBorder),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                Row(
+                  children: [
+                    const Icon(Icons.terminal, color: ResonXColors.neonCyan, size: 26),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'ResonX CEO Console & Diagnostics',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: ResonXColors.textPrimary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      icon: const Icon(Icons.refresh, color: ResonXColors.cyberJade),
-                      label: const Text('Reset Audio', style: TextStyle(color: ResonXColors.textPrimary)),
-                      onPressed: () {
-                        AudioPlayerService.instance.seek(Duration.zero);
-                        setState(() => _statusMessage = 'Zresetowano strumień odtwarzacza.');
-                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: ResonXColors.textSecondary, size: 22),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                if (!_isUnlocked) ...[
+                  const Text(
+                    'Wprowadź Master PIN Administratora (CEO PIN), aby odblokować pełne uprawnienia diagnostyczne:',
+                    style: TextStyle(color: ResonXColors.textSecondary, fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _pinController,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: ResonXColors.textPrimary, letterSpacing: 4),
+                    decoration: InputDecoration(
+                      labelText: 'PIN (np. 7895)',
+                      labelStyle: const TextStyle(color: ResonXColors.textSecondary),
+                      filled: true,
+                      fillColor: ResonXColors.deepGraphite,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: ResonXColors.cardBorder),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      icon: const Icon(Icons.delete_sweep, color: ResonXColors.errorRed),
-                      label: const Text('Wyczyść Cache', style: TextStyle(color: ResonXColors.textPrimary)),
-                      onPressed: () {
-                        setState(() => _statusMessage = 'Pamięć podręczna oczyszczona.');
-                      },
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: ResonXColors.neonCyan,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
+                    onPressed: _verifyPin,
+                    child: const Text('Odblokuj Konsolę', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  ),
+                ] else ...[
+                  _buildMetricTile('Status Sesji', 'CEO Master Access Active', ResonXColors.cyberJade),
+                  _buildMetricTile('Audio Pipeline', 'MediaKit / MPV Native Stream', ResonXColors.neonCyan),
+                  _buildMetricTile('Discord RPC Client', '1542593239352221836 (Active)', const Color(0xFF5865F2)),
+                  _buildMetricTile('Kolejka odtwarzacza', '${AudioPlayerService.instance.queue.length} utworów', ResonXColors.textPrimary),
+                  _buildMetricTile('Status Odtwarzania', AudioPlayerService.instance.isPlaying ? 'Grający (Playing)' : 'Wstrzymany (Paused)', ResonXColors.cyberJade),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: ResonXColors.cardBorder),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          icon: const Icon(Icons.refresh, color: ResonXColors.cyberJade, size: 18),
+                          label: const Text(
+                            'Reset Audio',
+                            style: TextStyle(color: ResonXColors.textPrimary, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onPressed: () {
+                            AudioPlayerService.instance.seek(Duration.zero);
+                            setState(() => _statusMessage = 'Zresetowano strumień odtwarzacza.');
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: ResonXColors.cardBorder),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          icon: const Icon(Icons.delete_sweep, color: ResonXColors.errorRed, size: 18),
+                          label: const Text(
+                            'Wyczyść Cache',
+                            style: TextStyle(color: ResonXColors.textPrimary, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onPressed: () {
+                            setState(() => _statusMessage = 'Pamięć podręczna oczyszczona.');
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ],
-              ),
-            ],
-            if (_statusMessage != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                _statusMessage!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: ResonXColors.cyberJade, fontSize: 13),
-              ),
-            ],
-          ],
+                if (_statusMessage != null) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    _statusMessage!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: ResonXColors.cyberJade, fontSize: 12.5, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -167,7 +191,7 @@ class _AdminPanelDialogState extends State<AdminPanelDialog> {
   Widget _buildMetricTile(String label, String value, Color color) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: ResonXColors.deepGraphite,
         borderRadius: BorderRadius.circular(8),
@@ -176,8 +200,24 @@ class _AdminPanelDialogState extends State<AdminPanelDialog> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 13)),
-          Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+          Flexible(
+            flex: 4,
+            child: Text(
+              label,
+              style: const TextStyle(color: ResonXColors.textSecondary, fontSize: 12.5),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            flex: 6,
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12.5),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );

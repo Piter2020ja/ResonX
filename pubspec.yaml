@@ -26,8 +26,12 @@ dependencies:
   dart_des: ^1.0.2
   package_info_plus: ^8.1.0
 
-  # Obsluga sesji audio (niezbedne dla odtwarzania w tle na iOS)
+  # Niezbedne dla odtwarzania w tle i kontrolek na ekranie blokady oraz pasku powiadomien
+  audio_service: ^0.18.18
   audio_session: ^0.1.21
+
+  # Systemowa plywajaca wyspa dzialajaca nad wszystkimi innymi aplikacjami i pulpitem
+  flutter_overlay_window: ^0.5.0
 
   # Zachowane dla zgodnosci z pozostalymi serwisami
   just_audio: ^0.9.40

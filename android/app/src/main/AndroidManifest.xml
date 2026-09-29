@@ -8,18 +8,26 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     
-    <!-- Wymagane od Androida 13+ do wyświetlania odtwarzacza w powiadomieniach -->
+    <!-- Wymagane od Androida 13+ do wyświetlania interaktywnej wyspy i powiadomień -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
-    <!-- Wymagane od Androida 14+ dla nieprzerwanego odtwarzania w tle -->
+    <!-- Wymagane od Androida 14+ dla nieprzerwanego odtwarzania w tle i sesji mediów -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Kluczowe uprawnienie do wyświetlania pływającej wyspy (Dynamic Island) nad innymi aplikacjami -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Kluczowe uprawnienie do samoczynnej instalacji aktualizacji APK prosto z GitHub Releases -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Zabezpieczenie przed agresywnym ubijaniem odtwarzania przez zarzadzanie bateria producenta -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Obsluga przyciskow sprzetowych, zestawow sluchawkowych i Bluetooth -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:label="ResonX"
@@ -48,18 +56,55 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Filtr umozliwiajacy powrot do odtwarzacza po dotknieciu systemowej wyspy -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="resonx" />
+            </intent-filter>
         </activity>
 
         <!-- =============================================================== -->
-        <!-- OBSŁUGA PRZYCISKÓW MEDIALNYCH (SŁUCHAWKI / BLUETOOTH)           -->
+        <!-- USŁUGA ODTWARZANIA W TLE (WYSPA HYPEROS / ONE UI / MEDIA STYLE)  -->
+        <!-- =============================================================== -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <!-- =============================================================== -->
+        <!-- USŁUGA PŁYWAJĄCEJ WYSPY SYSTEMOWEJ (OVERLAY WINDOW NAD APKAMI) -->
+        <!-- =============================================================== -->
+        <service
+            android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="System Floating Music Island and Player Overlay" />
+        </service>
+
+        <!-- =============================================================== -->
+        <!-- OBSŁUGA PRZYCISKÓW MEDIALNYCH (SŁUCHAWKI / BLUETOOTH / WIDGET)  -->
         <!-- =============================================================== -->
         <receiver
             android:name="com.ryanheise.audioservice.MediaButtonReceiver"
-            android:exported="true"
-            tools:node="remove">
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
         </receiver>
 
-        <!-- Dostawca plikow do bezpiecznego otwierania pobranych instalatorow APK na nowszych wersjach Androida -->
+        <!-- =============================================================== -->
+        <!-- DOSTAWCA PLIKÓW DLA AKTUALIZACJI APK (FILEPROVIDER)             -->
+        <!-- =============================================================== -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
