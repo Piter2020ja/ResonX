@@ -19,12 +19,16 @@ class DownloadTask {
   final double progress;
   final DownloadStatus status;
   final String? errorMessage;
+  final int receivedBytes;
+  final int totalBytes;
 
   DownloadTask({
     required this.track,
     this.progress = 0.0,
     this.status = DownloadStatus.idle,
     this.errorMessage,
+    this.receivedBytes = 0,
+    this.totalBytes = 0,
   });
 
   DownloadTask copyWith({
@@ -32,12 +36,16 @@ class DownloadTask {
     double? progress,
     DownloadStatus? status,
     String? errorMessage,
+    int? receivedBytes,
+    int? totalBytes,
   }) {
     return DownloadTask(
       track: track ?? this.track,
       progress: progress ?? this.progress,
       status: status ?? this.status,
       errorMessage: errorMessage,
+      receivedBytes: receivedBytes ?? this.receivedBytes,
+      totalBytes: totalBytes ?? this.totalBytes,
     );
   }
 }
@@ -51,14 +59,11 @@ class DownloaderService extends ChangeNotifier {
 
   final Dio _dio = Dio(
     BaseOptions(
-      connectTimeout: const Duration(seconds: 20),
+      connectTimeout: const Duration(seconds: 25),
       receiveTimeout: const Duration(minutes: 10),
-      headers: {
-        'User-Agent':
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1 ResonX/1.0',
-        'Referer': 'https://soundcloud.com/',
-        'Accept': '*/*',
-      },
+      followRedirects: true,
+      maxRedirects: 5,
+      validateStatus: (status) => status != null && status < 400,
     ),
   );
 
@@ -93,26 +98,45 @@ class DownloaderService extends ChangeNotifier {
     }
   }
 
-  Future<String> _getDestinationPath(Track track) async {
+  String _sanitizeTrackId(String trackId) {
+    return trackId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+  }
+
+  Future<String> _getDestinationPath(Track track, {String extension = 'mp3'}) async {
     if (_storageDir == null) {
       await _initDirectory();
     }
-    final sanitizedId = track.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-    return '${_storageDir!.path}/$sanitizedId.mp3';
+    final sanitizedId = _sanitizeTrackId(track.id);
+    return '${_storageDir!.path}/$sanitizedId.$extension';
   }
 
   bool isDownloadedLocally(String trackId) {
     if (_storageDir == null) return false;
-    final sanitizedId = trackId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-    final file = File('${_storageDir!.path}/$sanitizedId.mp3');
-    return file.existsSync() && file.lengthSync() > 1024;
+    final sanitizedId = _sanitizeTrackId(trackId);
+    
+    // Sprawdzanie MP3 oraz formatów AAC/M4A/FLAC
+    final extensions = ['mp3', 'm4a', 'opus', 'flac'];
+    for (final ext in extensions) {
+      final file = File('${_storageDir!.path}/$sanitizedId.$ext');
+      if (file.existsSync() && file.lengthSync() > 1024) {
+        return true;
+      }
+    }
+    return false;
   }
 
   String? getLocalFilePath(String trackId) {
     if (_storageDir == null) return null;
-    final sanitizedId = trackId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-    final file = File('${_storageDir!.path}/$sanitizedId.mp3');
-    return file.existsSync() ? file.path : null;
+    final sanitizedId = _sanitizeTrackId(trackId);
+    
+    final extensions = ['mp3', 'm4a', 'opus', 'flac'];
+    for (final ext in extensions) {
+      final file = File('${_storageDir!.path}/$sanitizedId.$ext');
+      if (file.existsSync() && file.lengthSync() > 1024) {
+        return file.path;
+      }
+    }
+    return null;
   }
 
   DownloadTask? getTask(String trackId) => _activeDownloads[trackId];
@@ -135,8 +159,11 @@ class DownloaderService extends ChangeNotifier {
         int totalBytes = 0;
         final files = _storageDir!.listSync();
         for (var entity in files) {
-          if (entity is File && entity.path.endsWith('.mp3')) {
-            totalBytes += entity.lengthSync();
+          if (entity is File) {
+            final p = entity.path.toLowerCase();
+            if (p.endsWith('.mp3') || p.endsWith('.m4a') || p.endsWith('.opus') || p.endsWith('.flac')) {
+              totalBytes += entity.lengthSync();
+            }
           }
         }
         return totalBytes / (1024 * 1024);
@@ -182,8 +209,10 @@ class DownloaderService extends ChangeNotifier {
   Future<void> downloadTrack(Track track) async {
     if (isDownloadedLocally(track.id)) {
       debugPrint('[ResonX Downloader] Utwór już pobrany na dysku: ${track.title}');
-      final path = await _getDestinationPath(track);
-      await DatabaseService.instance.registerOfflineTrack(track, path);
+      final existingPath = getLocalFilePath(track.id);
+      if (existingPath != null) {
+        await DatabaseService.instance.registerOfflineTrack(track, existingPath);
+      }
       return;
     }
 
@@ -204,22 +233,49 @@ class DownloaderService extends ChangeNotifier {
     try {
       final streamResult = await ApiService.instance.resolveDirectAudioStream(track);
       final downloadUrl = streamResult.directUrl;
-      final targetPath = await _getDestinationPath(track);
+      
+      // Dynamiczne określenie rozszerzenia pliku ze strumienia
+      String fileExt = 'mp3';
+      final lowerUrl = downloadUrl.toLowerCase();
+      if (lowerUrl.contains('.m4a')) {
+        fileExt = 'm4a';
+      } else if (lowerUrl.contains('.opus')) {
+        fileExt = 'opus';
+      } else if (lowerUrl.contains('.flac')) {
+        fileExt = 'flac';
+      }
+
+      final targetPath = await _getDestinationPath(track, extension: fileExt);
       final tempPath = '$targetPath.tmp';
 
       debugPrint('[ResonX Downloader] Rozpoczynanie pobierania: ${track.title}');
+
+      // Dynamiczny dobór nagłówków zapobiegający blokadom 403 Forbidden
+      final Map<String, String> requestHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+      };
+
+      if (downloadUrl.contains('soundcloud.com') || downloadUrl.contains('sndcdn.com')) {
+        requestHeaders['Referer'] = 'https://soundcloud.com/';
+      } else if (downloadUrl.contains('googlevideo.com') || downloadUrl.contains('youtube')) {
+        requestHeaders['Referer'] = 'https://music.youtube.com/';
+      }
 
       await _dio.download(
         downloadUrl,
         tempPath,
         cancelToken: cancelToken,
+        options: Options(headers: requestHeaders),
         onReceiveProgress: (received, total) {
-          if (total != -1) {
+          if (total > 0) {
             final progress = (received / total).clamp(0.0, 1.0);
             _activeDownloads[track.id] = DownloadTask(
               track: track,
               progress: progress,
               status: DownloadStatus.downloading,
+              receivedBytes: received,
+              totalBytes: total,
             );
             notifyListeners();
           }
@@ -228,6 +284,10 @@ class DownloaderService extends ChangeNotifier {
 
       final tempFile = File(tempPath);
       if (await tempFile.exists()) {
+        final destFile = File(targetPath);
+        if (await destFile.exists()) {
+          await destFile.delete();
+        }
         await tempFile.rename(targetPath);
       }
 
@@ -252,6 +312,15 @@ class DownloaderService extends ChangeNotifier {
       } else {
         debugPrint('[ResonX Downloader Error] Błąd pobierania utworu ${track.title}: $e');
       }
+
+      // Sprzątanie pliku .tmp w razie błędu
+      try {
+        final targetPath = await _getDestinationPath(track);
+        final tempFile = File('$targetPath.tmp');
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+      } catch (_) {}
 
       _activeDownloads[track.id] = DownloadTask(
         track: track,

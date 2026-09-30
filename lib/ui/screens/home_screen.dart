@@ -64,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   double _currentPlaybackSpeed = 1.0;
   bool _autoSkipSilenceIntro = true;
-  int _defaultSilenceTrimSeconds = 2;
+  final int _defaultSilenceTrimSeconds = 2;
 
   final Map<String, int> _trackCustomStartOffsets = <String, int>{};
 
@@ -274,6 +274,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool _isItemDownloaded(Track track) {
     return _offlineDownloadedIds.contains(track.id) ||
+        DownloaderService.instance.isDownloadedLocally(track.id) ||
         (track.localPath != null && track.localPath!.isNotEmpty);
   }
 
@@ -315,6 +316,57 @@ class _HomeScreenState extends State<HomeScreen>
         _activePlaylistName = null;
       }
     });
+  }
+
+  Future<void> _playSelectedTrack(Track track, List<Track> queue, int index, AudioPlayerService playerService) async {
+    final isCurrent = playerService.currentTrack?.id == track.id;
+    if (isCurrent) {
+      playerService.togglePlayPause();
+      return;
+    }
+
+    try {
+      final directUrl = await ApiService.instance.resolveAudioStreamUrl(track);
+      final resolvedTrack = Track(
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        audioUrl: directUrl.isNotEmpty ? directUrl : track.audioUrl,
+        coverUrl: track.coverUrl,
+        durationSeconds: track.durationSeconds,
+        localPath: track.localPath,
+        isOfficial: track.isOfficial,
+        bitrate: track.bitrate,
+        fileFormat: track.fileFormat,
+      );
+
+      playerService.setQueue(queue, startIndex: index, autoPlay: false);
+      await playerService.playTrack(resolvedTrack);
+
+      if (mounted) {
+        setState(() {
+          _totalListenedSeconds += track.durationSeconds > 0 ? track.durationSeconds : 180;
+          _artistPlayCounts[track.artist] = (_artistPlayCounts[track.artist] ?? 0) + 1;
+        });
+      }
+
+      int startOffset = 0;
+      if (_trackCustomStartOffsets.containsKey(track.id)) {
+        startOffset = _trackCustomStartOffsets[track.id]!;
+      } else if (_autoSkipSilenceIntro) {
+        startOffset = _defaultSilenceTrimSeconds;
+      }
+
+      if (startOffset > 0) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        playerService.player.seek(Duration(seconds: startOffset));
+      }
+    } catch (e) {
+      debugPrint('[ResonX Playback Error] $e');
+      playerService.setQueue(queue, startIndex: index, autoPlay: false);
+      playerService.playTrack(track);
+    }
   }
 
   void _showSetTrackStartOffsetModal(BuildContext context, Track track, AudioPlayerService playerService) {
@@ -2057,8 +2109,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   IconButton(
                                     icon: const Icon(Icons.play_circle_fill, color: ResonXPalette.neonMint, size: 26),
                                     onPressed: () {
-                                      playerService.setQueue(_playlistTracksMap[_activePlaylistName]!, startIndex: index);
-                                      playerService.playTrack(track);
+                                      _playSelectedTrack(track, _playlistTracksMap[_activePlaylistName]!, index, playerService);
                                     },
                                   ),
                                   IconButton(
@@ -2270,6 +2321,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildResonXHeader(AuthCloudService authService, AudioPlayerService playerService) {
     final session = authService.session;
     final bool isLoggedIn = authService.isAuthenticated;
+    final currentTrack = playerService.currentTrack;
 
     return Container(
       height: 52,
@@ -2280,6 +2332,7 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       child: Row(
         children: [
+          // Lewa strona: logo i etykiety
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2322,66 +2375,92 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
               ),
-              const SizedBox(width: 4),
+            ],
+          ),
+
+          const SizedBox(width: 6),
+
+          // Środkowa dynamiczna kapsułka (Island Pill) - chroniona przed overflow
+          if (currentTrack != null)
+            Expanded(
+              child: Center(
+                child: Container(
+                  height: 30,
+                  constraints: const BoxConstraints(maxWidth: 190),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: ResonXPalette.surfaceCard,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: ResonXPalette.borderLight),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.network(
+                          currentTrack.coverUrl,
+                          width: 16,
+                          height: 16,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(Icons.music_note, size: 14, color: ResonXPalette.neonMint),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          currentTrack.title,
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else
+            const Spacer(),
+
+          // Prawa strona akcji: ikony i przełącznik z zabezpieczeniem
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               _buildHeaderIconButton(
                 icon: Icons.refresh_rounded,
                 tooltip: 'Odśwież sieć i tokeny strumieni',
                 onTap: () => _refreshNetworkStreams(context),
               ),
-            ],
-          ),
-          const Spacer(),
-          Flexible(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.discord,
-                    size: 17,
-                    color: _isDiscordRpcEnabled ? const Color(0xFF5865F2) : ResonXPalette.textDim,
-                  ),
-                  const SizedBox(width: 2),
-                  Transform.scale(
-                    scale: 0.65,
-                    child: Switch(
-                      value: _isDiscordRpcEnabled,
-                      activeThumbColor: ResonXPalette.neonMint,
-                      activeTrackColor: ResonXPalette.neonMint.withValues(alpha: 0.3),
-                      inactiveThumbColor: ResonXPalette.textDim,
-                      inactiveTrackColor: ResonXPalette.borderLight,
-                      onChanged: (val) {
-                        setState(() => _isDiscordRpcEnabled = val);
-                      },
-                    ),
-                  ),
-                  _buildHeaderIconButton(
-                    icon: Icons.speed_rounded,
-                    tooltip: 'Prędkość odtwarzania (${_currentPlaybackSpeed.toStringAsFixed(2)}x)',
-                    onTap: () => _showPlaybackSpeedModal(context, playerService),
-                  ),
-                  _buildHeaderIconButton(
-                    icon: Icons.tune_rounded,
-                    tooltip: 'Korektor dźwięku (DSP Equalizer)',
-                    onTap: () => _showDspEqualizerModal(context),
-                  ),
-                  _buildHeaderIconButton(
-                    icon: Icons.settings_outlined,
-                    tooltip: 'Ustawienia odtwarzacza',
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-                    },
-                  ),
-                  _buildHeaderIconButton(
-                    icon: isLoggedIn ? Icons.account_circle : Icons.account_circle_outlined,
-                    tooltip: isLoggedIn ? 'Profil: ${session?.username}' : 'Profil (Tryb Lokalny)',
-                    onTap: () => _showProfileDialog(context),
-                  ),
-                ],
+              Transform.scale(
+                scale: 0.62,
+                child: Switch(
+                  value: _isDiscordRpcEnabled,
+                  activeThumbColor: ResonXPalette.neonMint,
+                  activeTrackColor: ResonXPalette.neonMint.withValues(alpha: 0.3),
+                  inactiveThumbColor: ResonXPalette.textDim,
+                  inactiveTrackColor: ResonXPalette.borderLight,
+                  onChanged: (val) {
+                    setState(() => _isDiscordRpcEnabled = val);
+                  },
+                ),
               ),
-            ),
+              _buildHeaderIconButton(
+                icon: Icons.speed_rounded,
+                tooltip: 'Prędkość odtwarzania (${_currentPlaybackSpeed.toStringAsFixed(2)}x)',
+                onTap: () => _showPlaybackSpeedModal(context, playerService),
+              ),
+              _buildHeaderIconButton(
+                icon: Icons.tune_rounded,
+                tooltip: 'Korektor dźwięku (DSP Equalizer)',
+                onTap: () => _showDspEqualizerModal(context),
+              ),
+              _buildHeaderIconButton(
+                icon: isLoggedIn ? Icons.account_circle : Icons.account_circle_outlined,
+                tooltip: isLoggedIn ? 'Profil: ${session?.username}' : 'Profil (Tryb Lokalny)',
+                onTap: () => _showProfileDialog(context),
+              ),
+            ],
           ),
         ],
       ),
@@ -2651,6 +2730,189 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildTopMatchCard(Track track, AudioPlayerService playerService, List<Track> allTracks) {
+    final isCurrent = playerService.currentTrack?.id == track.id;
+    final isPlaying = isCurrent && playerService.isPlaying;
+    final isFav = playerService.favoriteTrackIds.contains(track.id);
+    final isDownloaded = _isItemDownloaded(track);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            ResonXPalette.neonCyan.withValues(alpha: 0.16),
+            ResonXPalette.surfaceCard,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ResonXPalette.neonCyan.withValues(alpha: 0.4), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: ResonXPalette.neonCyan.withValues(alpha: 0.08),
+            blurRadius: 16,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.verified_rounded, color: ResonXPalette.neonMint, size: 14),
+                    const SizedBox(width: 6),
+                    const Flexible(
+                      child: Text(
+                        'GŁÓWNY WYNIK • OFICJALNE WYDANIE',
+                        style: TextStyle(
+                          color: ResonXPalette.neonMint,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.1,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: ResonXPalette.neonCyan.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: ResonXPalette.neonCyan.withValues(alpha: 0.3)),
+                ),
+                child: const Text(
+                  'TOP MATCH',
+                  style: TextStyle(color: ResonXPalette.neonCyan, fontSize: 9.5, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      track.coverUrl,
+                      width: 58,
+                      height: 58,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(width: 58, height: 58, color: ResonXPalette.surfaceCardHover),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => _playSelectedTrack(track, allTracks, 0, playerService),
+                    child: Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        isPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
+                        color: ResonXPalette.neonMint,
+                        size: 32,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w900,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            track.artist,
+                            style: const TextStyle(color: ResonXPalette.neonCyan, fontSize: 12.5, fontWeight: FontWeight.bold),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (track.isOfficial) ...[
+                          const SizedBox(width: 4),
+                          const Icon(Icons.check_circle, color: ResonXPalette.neonCyan, size: 12),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      track.album.isNotEmpty ? track.album : 'Oficjalna wersja studyjna',
+                      style: const TextStyle(color: ResonXPalette.textDim, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  isDownloaded ? Icons.check_circle_rounded : Icons.download_rounded,
+                  size: 20,
+                  color: isDownloaded ? ResonXPalette.neonMint : ResonXPalette.textSecondary,
+                ),
+                tooltip: isDownloaded ? 'Pobrano' : 'Pobierz',
+                onPressed: () {
+                  setState(() {
+                    if (_offlineDownloadedIds.contains(track.id)) {
+                      _offlineDownloadedIds.remove(track.id);
+                    } else {
+                      _offlineDownloadedIds.add(track.id);
+                    }
+                  });
+                  DownloaderService.instance.downloadTrack(track);
+                },
+              ),
+              IconButton(
+                icon: Icon(
+                  isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                  size: 20,
+                  color: isFav ? ResonXPalette.neonCoral : ResonXPalette.textSecondary,
+                ),
+                onPressed: () => playerService.toggleFavorite(track),
+              ),
+              IconButton(
+                icon: const Icon(Icons.more_vert_rounded, size: 20, color: ResonXPalette.textSecondary),
+                onPressed: () => _showTrackOptionsModal(context, track, playerService),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTrackListView(List<Track> tracks, AudioPlayerService playerService) {
     if (tracks.isEmpty) {
       return const Center(
@@ -2658,13 +2920,24 @@ class _HomeScreenState extends State<HomeScreen>
       );
     }
 
+    final bool showTopMatch = (_selectedNav == 'catalog' || _searchQuery.isNotEmpty) &&
+        tracks.isNotEmpty &&
+        tracks.first.isOfficial;
+        
+    final int extraHeaderCount = showTopMatch ? 1 : 0;
+
     return ListView.separated(
       controller: _trackListScrollController,
       padding: const EdgeInsets.fromLTRB(14, 2, 14, 20),
-      itemCount: tracks.length,
+      itemCount: tracks.length + extraHeaderCount,
       separatorBuilder: (_, __) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
-        final track = tracks[index];
+        if (showTopMatch && index == 0) {
+          return _buildTopMatchCard(tracks.first, playerService, tracks);
+        }
+
+        final actualIndex = showTopMatch ? index - 1 : index;
+        final track = tracks[actualIndex];
         final isCurrent = playerService.currentTrack?.id == track.id;
         final isPlayingThis = isCurrent && playerService.isPlaying;
         final isFav = playerService.favoriteTrackIds.contains(track.id);
@@ -2676,46 +2949,7 @@ class _HomeScreenState extends State<HomeScreen>
           isPlaying: isPlayingThis,
           isFavorite: isFav,
           isDownloaded: isDownloaded,
-          onTap: () async {
-            if (isCurrent) {
-              playerService.togglePlayPause();
-            } else {
-              try {
-                final directUrl = await ApiService.instance.resolveAudioStreamUrl(track);
-                final resolvedTrack = Track(
-                  id: track.id,
-                  title: track.title,
-                  artist: track.artist,
-                  album: track.album,
-                  audioUrl: directUrl.isNotEmpty ? directUrl : track.audioUrl,
-                  coverUrl: track.coverUrl,
-                  durationSeconds: track.durationSeconds,
-                  localPath: track.localPath,
-                );
-                playerService.setQueue(tracks, startIndex: index);
-                await playerService.playTrack(resolvedTrack);
-
-                setState(() {
-                  _totalListenedSeconds += track.durationSeconds > 0 ? track.durationSeconds : 180;
-                  _artistPlayCounts[track.artist] = (_artistPlayCounts[track.artist] ?? 0) + 1;
-                });
-
-                int startOffset = 0;
-                if (_trackCustomStartOffsets.containsKey(track.id)) {
-                  startOffset = _trackCustomStartOffsets[track.id]!;
-                } else if (_autoSkipSilenceIntro) {
-                  startOffset = _defaultSilenceTrimSeconds;
-                }
-
-                if (startOffset > 0) {
-                  await Future.delayed(const Duration(milliseconds: 300));
-                  playerService.player.seek(Duration(seconds: startOffset));
-                }
-              } catch (_) {
-                playerService.setQueue(tracks, startIndex: index);
-              }
-            }
-          },
+          onTap: () => _playSelectedTrack(track, tracks, actualIndex, playerService),
           onToggleFavorite: () => playerService.toggleFavorite(track),
           onDownloadTap: () {
             setState(() {
@@ -2766,6 +3000,16 @@ class _ResonXTrackListTile extends StatefulWidget {
 
 class _ResonXTrackListTileState extends State<_ResonXTrackListTile> {
   bool _isHovered = false;
+
+  String _getAudioBadgeLabel() {
+    if (widget.track.fileFormat.toUpperCase() == 'FLAC' || widget.track.fileFormat.toUpperCase() == 'WAV') {
+      return 'LOSSLESS';
+    }
+    if (widget.track.isOfficial || widget.track.id.startsWith('yt_')) {
+      return 'STUDIO HD';
+    }
+    return 'HQ';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2857,6 +3101,10 @@ class _ResonXTrackListTileState extends State<_ResonXTrackListTile> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (widget.track.isOfficial) ...[
+                          const SizedBox(width: 4),
+                          const Icon(Icons.check_circle, color: ResonXPalette.neonCyan, size: 12),
+                        ],
                         const SizedBox(width: 6),
                         const Text('•', style: TextStyle(color: ResonXPalette.textDim, fontSize: 10)),
                         const SizedBox(width: 6),
@@ -2867,7 +3115,10 @@ class _ResonXTrackListTileState extends State<_ResonXTrackListTile> {
                             borderRadius: BorderRadius.circular(3),
                             border: Border.all(color: ResonXPalette.borderLight),
                           ),
-                          child: const Text('HQ', style: TextStyle(color: ResonXPalette.neonMint, fontSize: 9.5, fontWeight: FontWeight.bold)),
+                          child: Text(
+                            _getAudioBadgeLabel(),
+                            style: const TextStyle(color: ResonXPalette.neonMint, fontSize: 9.0, fontWeight: FontWeight.bold),
+                          ),
                         ),
                       ],
                     ),

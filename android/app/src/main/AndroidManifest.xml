@@ -8,7 +8,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     
-    <!-- Wymagane od Androida 13+ do wyświetlania interaktywnej wyspy i powiadomień -->
+    <!-- Dostęp do lokalnych plików audio (Android 13, 14, 15, 16 oraz starsze) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:ignore="ScopedStorage" />
+
+    <!-- Wymagane od Androida 13+ do wyświetlania powiadomień i kontrolera mediów -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
     <!-- Wymagane od Androida 14+ dla nieprzerwanego odtwarzania w tle i sesji mediów -->
@@ -16,16 +21,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <!-- Kluczowe uprawnienie do wyświetlania pływającej wyspy (Dynamic Island) nad innymi aplikacjami -->
+    <!-- Kluczowe uprawnienie do wyświetlania pływającej dynamicznej wyspy nad aplikacjami -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- Kluczowe uprawnienie do samoczynnej instalacji aktualizacji APK prosto z GitHub Releases -->
+    <!-- Kluczowe uprawnienie do instalacji aktualizacji APK prosto z GitHub Releases -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Zabezpieczenie przed agresywnym ubijaniem odtwarzania przez zarzadzanie bateria producenta -->
+    <!-- Zabezpieczenie przed agresywnym ubijaniem odtwarzania przez zarządzanie baterią -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Obsluga przyciskow sprzetowych, zestawow sluchawkowych i Bluetooth -->
+    <!-- Obsługa przycisków sprzętowych, zestawów słuchawkowych i Bluetooth -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
@@ -33,7 +38,9 @@
         android:label="ResonX"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true"
+        tools:targetApi="36">
         
         <!-- =============================================================== -->
         <!-- GŁÓWNA AKTYWNOŚĆ APLIKACJI                                      -->
@@ -57,7 +64,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Filtr umozliwiajacy powrot do odtwarzacza po dotknieciu systemowej wyspy -->
+            <!-- Filtr umożliwiający powrót do odtwarzacza po dotknięciu wyspy -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -67,7 +74,7 @@
         </activity>
 
         <!-- =============================================================== -->
-        <!-- USŁUGA ODTWARZANIA W TLE (WYSPA HYPEROS / ONE UI / MEDIA STYLE)  -->
+        <!-- USŁUGA ODTWARZANIA W TLE (AUDIO SERVICE)                         -->
         <!-- =============================================================== -->
         <service
             android:name="com.ryanheise.audioservice.AudioService"
@@ -92,7 +99,7 @@
         </service>
 
         <!-- =============================================================== -->
-        <!-- OBSŁUGA PRZYCISKÓW MEDIALNYCH (SŁUCHAWKI / BLUETOOTH / WIDGET)  -->
+        <!-- OBSŁUGA PRZYCISKÓW MEDIALNYCH (SŁUCHAWKI / BLUETOOTH)          -->
         <!-- =============================================================== -->
         <receiver
             android:name="com.ryanheise.audioservice.MediaButtonReceiver"
@@ -130,12 +137,10 @@
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
-        <!-- Zezwolenie na interakcje z systemowym instalatorem pakietow APK -->
         <intent>
             <action android:name="android.intent.action.INSTALL_PACKAGE" />
             <data android:scheme="package" />
         </intent>
-        <!-- Obsluga przegladarki i protokolu https -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />

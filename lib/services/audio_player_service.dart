@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
+import 'package:path_provider/path_provider.dart';
 import '../models/track.dart';
 import 'api_service.dart';
 import 'database_service.dart';
@@ -94,16 +95,25 @@ class ResonXPlayerWrapper {
 
   Player get rawPlayer => _innerPlayer;
 
+  Map<String, String> _buildHeadersForUrl(String url) {
+    final Map<String, String> headers = {
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Connection': 'keep-alive',
+    };
+    if (url.contains('soundcloud.com') || url.contains('sndcdn.com')) {
+      headers['Referer'] = 'https://soundcloud.com/';
+    }
+    return headers;
+  }
+
   Future<void> setUrl(String url) async {
     try {
       await _innerPlayer.open(
         Media(
           url,
-          httpHeaders: {
-            'User-Agent':
-                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1 ResonX/1.0',
-            'Referer': 'https://soundcloud.com/',
-          },
+          httpHeaders: _buildHeadersForUrl(url),
         ),
         play: false,
       );
@@ -175,6 +185,16 @@ class AudioPlayerService extends ChangeNotifier {
   Timer? _sleepTimer;
   int _remainingSleepSeconds = 0;
 
+  // Aktywna subskrypcja strumienia bajtów w tle
+  StreamSubscription<List<int>>? _activeStreamSubscription;
+  IOSink? _activeStreamSink;
+  String? _currentStreamingTrackId;
+
+  // Detektor ciszy bez blokowania wątku UI
+  bool _autoSkipSilenceEnabled = true;
+  bool _silenceSkippedForCurrentTrack = false;
+  StreamSubscription? _logSubscription;
+
   // ---------------------------------------------------------------------------
   // GETTERY
   // ---------------------------------------------------------------------------
@@ -194,6 +214,7 @@ class AudioPlayerService extends ChangeNotifier {
   double get crossfadeSeconds => _crossfadeSeconds;
   bool get gaplessPlayback => _gaplessPlayback;
   double get bufferDurationSeconds => _bufferDurationSeconds;
+  bool get autoSkipSilenceEnabled => _autoSkipSilenceEnabled;
 
   ResonXRepeatMode get repeatMode => _repeatMode;
   bool get isShuffle => _isShuffle;
@@ -248,7 +269,10 @@ class AudioPlayerService extends ChangeNotifier {
 
     _rawPlayer.setVolume(_volume * 100.0);
 
-    // Odbieranie poleceń od pływającej wyspy poza aplikacją
+    // Konfiguracja natywnego filtra MPV do detekcji ciszy
+    _setupMpvSilenceDetection();
+
+    // Odbieranie poleceń od pływającej wyspy poza aplikacją (Android Overlay)
     if (!kIsWeb && Platform.isAndroid) {
       FlutterOverlayWindow.overlayListener.listen((event) {
         if (event is String) {
@@ -258,6 +282,12 @@ class AudioPlayerService extends ChangeNotifier {
             playNext();
           } else if (event == 'ACTION_PREV') {
             playPrevious();
+          } else if (event.startsWith('ACTION_SEEK:')) {
+            final secondsStr = event.replaceFirst('ACTION_SEEK:', '');
+            final targetSec = int.tryParse(secondsStr);
+            if (targetSec != null) {
+              seek(Duration(seconds: targetSec));
+            }
           }
         }
       });
@@ -285,9 +315,14 @@ class AudioPlayerService extends ChangeNotifier {
       }
     });
 
+    // Zabezpieczenie przed pętlą przeskakiwania utworów przy błędzie bufora
     _rawPlayer.stream.completed.listen((completed) {
       if (completed && !_isCrossfading) {
-        _handleTrackEnded();
+        if (_totalDuration > Duration.zero && _currentPosition.inSeconds >= (_totalDuration.inSeconds - 3)) {
+          _handleTrackEnded();
+        } else {
+          debugPrint('[ResonX Audio Engine] Wykryto koniec strumienia lub błąd bufora.');
+        }
       }
     });
 
@@ -295,6 +330,47 @@ class AudioPlayerService extends ChangeNotifier {
 
     _syncFavorites();
     DatabaseService.instance.addListener(_syncFavorites);
+  }
+
+  void _setupMpvSilenceDetection() {
+    try {
+      final dynamic nativePlatform = _rawPlayer.platform;
+      if (nativePlatform != null) {
+        try {
+          // Bezpieczne wywołanie natywnej komendy MPV bez błędów typowania
+          (nativePlatform as dynamic)?.command?.call([
+            'set_property',
+            'af',
+            'lavfi=[silencedetect=noise=-38dB:d=1.5]',
+          ]);
+        } catch (_) {}
+      }
+
+      _logSubscription?.cancel();
+      _logSubscription = _rawPlayer.stream.log.listen((log) {
+        if (!_autoSkipSilenceEnabled || _silenceSkippedForCurrentTrack) return;
+
+        final logText = log.toString();
+        if (logText.contains('silence_end')) {
+          final match = RegExp(r'silence_end:\s*([0-9.]+)').firstMatch(logText);
+          if (match != null) {
+            final double? endSec = double.tryParse(match.group(1) ?? '');
+            if (endSec != null && endSec >= 2.0 && _currentPosition.inSeconds < endSec.toInt()) {
+              _silenceSkippedForCurrentTrack = true;
+              debugPrint('[ResonX Silence Engine] Natywne wykrycie ciszy MPV! Przeskok do ${endSec.toStringAsFixed(1)}s');
+              seek(Duration(milliseconds: (endSec * 1000).toInt()));
+            }
+          }
+        }
+      });
+    } catch (e) {
+      debugPrint('[ResonX Silence Setup Error] $e');
+    }
+  }
+
+  void setAutoSkipSilence(bool enabled) {
+    _autoSkipSilenceEnabled = enabled;
+    notifyListeners();
   }
 
   void _syncFavorites() {
@@ -333,6 +409,107 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // METODA: AUTORYZOWANY DART BYTE STREAM PIPE & LOCAL CACHE
+  // ---------------------------------------------------------------------------
+
+  void _cancelActiveStreamDownload() {
+    try {
+      _activeStreamSubscription?.cancel();
+      _activeStreamSubscription = null;
+    } catch (_) {}
+    try {
+      _activeStreamSink?.close();
+      _activeStreamSink = null;
+    } catch (_) {}
+  }
+
+  Future<String?> _prepareStreamPipeAndCache(Track track) async {
+    _cancelActiveStreamDownload();
+    _currentStreamingTrackId = track.id;
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final cacheFolder = Directory('${tempDir.path}/ResonXStreamCache');
+      if (!cacheFolder.existsSync()) {
+        cacheFolder.createSync(recursive: true);
+      }
+
+      final safeId = track.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      final extension = track.id.startsWith('yt_') ? 'opus' : 'mp3';
+      final file = File('${cacheFolder.path}/$safeId.$extension');
+
+      if (file.existsSync() && file.lengthSync() > 1024 * 1024) {
+        debugPrint('[ResonX Stream Pipe] Utwór już w cache: ${file.path}');
+        return file.path;
+      }
+
+      if (file.existsSync()) {
+        try { file.deleteSync(); } catch (_) {}
+      }
+
+      final byteStream = await ApiService.instance.getTrackAudioByteStream(track);
+      if (byteStream == null) {
+        debugPrint('[ResonX Stream Pipe Error] Nie udało się uzyskać strumienia bajtów.');
+        return null;
+      }
+
+      final sink = file.openWrite();
+      _activeStreamSink = sink;
+
+      final completer = Completer<String?>();
+      int totalBytesReceived = 0;
+      const int initialThresholdBytes = 250 * 1024;
+      bool hasInitialBufferReady = false;
+
+      _activeStreamSubscription = byteStream.listen(
+        (chunk) {
+          if (_currentStreamingTrackId != track.id) return;
+
+          sink.add(chunk);
+          totalBytesReceived += chunk.length;
+
+          if (!hasInitialBufferReady && totalBytesReceived >= initialThresholdBytes) {
+            hasInitialBufferReady = true;
+            if (!completer.isCompleted) {
+              debugPrint('[ResonX Stream Pipe] Zbuforowano wstępne ${totalBytesReceived ~/ 1024} KB. Start lokalnego odtwarzacza!');
+              completer.complete(file.path);
+            }
+          }
+        },
+        onDone: () async {
+          await sink.flush();
+          await sink.close();
+          debugPrint('[ResonX Stream Pipe] Pobrano cały utwór do bufora i pamięci offline (${totalBytesReceived ~/ 1024} KB)');
+          if (!completer.isCompleted) {
+            completer.complete(file.path);
+          }
+        },
+        onError: (err) {
+          debugPrint('[ResonX Stream Pipe Error] Błąd podczas pobierania strumienia: $err');
+          if (!completer.isCompleted) {
+            completer.complete(file.existsSync() && file.lengthSync() > 50 * 1024 ? file.path : null);
+          }
+        },
+        cancelOnError: true,
+      );
+
+      return await completer.future.timeout(
+        const Duration(seconds: 12),
+        onTimeout: () {
+          _activeStreamSubscription?.cancel();
+          if (file.existsSync() && file.lengthSync() > 50 * 1024) {
+            return file.path;
+          }
+          return null;
+        },
+      );
+    } catch (e) {
+      debugPrint('[ResonX Stream Pipe Exception] $e');
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // ODTWARZANIE UTWORÓW
   // ---------------------------------------------------------------------------
 
@@ -341,9 +518,11 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    _cancelActiveStreamDownload();
     await _rawPlayer.stop();
     _isPlaying = false;
     _currentPosition = Duration.zero;
+    _silenceSkippedForCurrentTrack = false;
     updateDiscordPresence();
     _syncSystemMediaSession();
     notifyListeners();
@@ -353,6 +532,7 @@ class AudioPlayerService extends ChangeNotifier {
     _currentTrack = track;
     _currentPosition = Duration.zero;
     _isCrossfading = false;
+    _silenceSkippedForCurrentTrack = false;
 
     if (contextPlaylist != null && contextPlaylist.isNotEmpty) {
       _playlist.clear();
@@ -372,6 +552,8 @@ class AudioPlayerService extends ChangeNotifier {
 
     String playUri = '';
     bool isLocalFile = false;
+
+    // 1. Sprawdzenie biblioteki offline
     if (DownloaderService.instance.isDownloadedLocally(track.id)) {
       final localPath = DownloaderService.instance.getLocalFilePath(track.id);
       if (localPath != null && File(localPath).existsSync()) {
@@ -381,10 +563,23 @@ class AudioPlayerService extends ChangeNotifier {
       }
     }
 
+    // 2. Pobieranie / buforowanie przez autoryzowany Dart Pipe
     if (playUri.isEmpty) {
       try {
-        final streamData = await ApiService.instance.resolveDirectAudioStream(track);
-        playUri = streamData.directUrl;
+        if (track.id.startsWith('yt_') || track.audioUrl.contains('youtube.com')) {
+          final bufferedPath = await _prepareStreamPipeAndCache(track);
+          if (bufferedPath != null && File(bufferedPath).existsSync()) {
+            playUri = bufferedPath;
+            isLocalFile = true;
+            debugPrint('[ResonX Audio Engine] Przekazano lokalny plik z bufora do MediaKit: $playUri');
+          } else {
+            final streamData = await ApiService.instance.resolveDirectAudioStream(track);
+            playUri = streamData.directUrl;
+          }
+        } else {
+          final streamData = await ApiService.instance.resolveDirectAudioStream(track);
+          playUri = streamData.directUrl;
+        }
       } catch (e) {
         debugPrint('[ResonX Audio Engine Error] Nie udalo sie uzyskac strumienia: $e');
         return;
@@ -394,17 +589,22 @@ class AudioPlayerService extends ChangeNotifier {
     LyricsService.instance.loadLyricsForTrack(track);
 
     try {
+      final Map<String, String> requestHeaders = {
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+      };
+
+      if (playUri.contains('soundcloud.com') || playUri.contains('sndcdn.com')) {
+        requestHeaders['Referer'] = 'https://soundcloud.com/';
+      }
+
       final Media mediaToPlay = isLocalFile
           ? Media(playUri)
           : Media(
               playUri,
-              httpHeaders: {
-                'User-Agent':
-                    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1 ResonX/1.0',
-                'Referer': 'https://soundcloud.com/',
-                'Accept': '*/*',
-                'Connection': 'keep-alive',
-              },
+              httpHeaders: requestHeaders,
             );
 
       await _rawPlayer.open(mediaToPlay, play: true);
@@ -517,7 +717,7 @@ class AudioPlayerService extends ChangeNotifier {
   // KOLEJKA
   // ---------------------------------------------------------------------------
 
-  void setQueue(List<Track> newTracks, {int startIndex = 0}) {
+  void setQueue(List<Track> newTracks, {int startIndex = 0, bool autoPlay = false}) {
     _playlist.clear();
     _playlist.addAll(newTracks);
     _originalOrderPlaylist.clear();
@@ -525,10 +725,14 @@ class AudioPlayerService extends ChangeNotifier {
 
     if (newTracks.isNotEmpty && startIndex >= 0 && startIndex < newTracks.length) {
       _currentIndex = startIndex;
-      playTrack(newTracks[startIndex]);
+      if (autoPlay) {
+        playTrack(newTracks[startIndex]);
+      }
     } else if (newTracks.isNotEmpty) {
       _currentIndex = 0;
-      playTrack(newTracks[0]);
+      if (autoPlay) {
+        playTrack(newTracks[0]);
+      }
     } else {
       _currentIndex = -1;
       _currentTrack = null;
@@ -603,13 +807,14 @@ class AudioPlayerService extends ChangeNotifier {
     }
   }
 
-  Future<void> seek(Duration targetPosition) async {
+  Future<Duration> seek(Duration targetPosition) async {
     await _rawPlayer.seek(targetPosition);
     _currentPosition = targetPosition;
     LyricsService.instance.updatePlaybackPosition(targetPosition);
     updateDiscordPresence();
     _syncSystemMediaSession();
     notifyListeners();
+    return targetPosition;
   }
 
   Future<void> setVolume(double newVolume) async {
@@ -701,19 +906,19 @@ class AudioPlayerService extends ChangeNotifier {
     }
   }
 
-  Future<void> playPrevious() async {
-    if (_playlist.isEmpty) return;
+  Future<Future<Duration>?> playPrevious() async {
+    if (_playlist.isEmpty) return null;
 
     if (_currentPosition.inSeconds > 3) {
-      await seek(Duration.zero);
-      return;
+      return seek(Duration.zero);
     }
 
     if (_currentIndex > 0) {
       _currentIndex--;
       await playTrack(_playlist[_currentIndex]);
+      return null;
     } else {
-      await seek(Duration.zero);
+      return seek(Duration.zero);
     }
   }
 
@@ -804,8 +1009,10 @@ class AudioPlayerService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _cancelActiveStreamDownload();
     _crossfadeTimer?.cancel();
     _sleepTimer?.cancel();
+    _logSubscription?.cancel();
     DatabaseService.instance.removeListener(_syncFavorites);
     _rawPlayer.dispose();
     super.dispose();

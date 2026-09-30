@@ -2,9 +2,26 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ResonXWelcomeSetupDialog extends StatefulWidget {
   const ResonXWelcomeSetupDialog({super.key});
+
+  /// Statyczna metoda pomocnicza do wywołania w głównym ekranie aplikacji (np. w initState()).
+  /// Sprawdza, czy setup był już kiedykolwiek uruchomiony. Jeśli nie – wyświetla dialog.
+  static Future<void> showIfFirstLaunch(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool isCompleted = prefs.getBool('resonx_setup_completed_v4') ?? false;
+
+    if (!isCompleted && context.mounted) {
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        barrierColor: Colors.black.withValues(alpha: 0.75),
+        builder: (dialogCtx) => const ResonXWelcomeSetupDialog(),
+      );
+    }
+  }
 
   @override
   State<ResonXWelcomeSetupDialog> createState() => _ResonXWelcomeSetupDialogState();
@@ -15,18 +32,37 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
   int _currentStep = 0;
   bool _isInstalling = false;
   double _installProgress = 0.0;
-  String _installStatusText = 'Inicjalizacja silnika audio DirectSound...';
+  String _installStatusText = 'Weryfikacja środowiska uruchomieniowego...';
 
   late AnimationController _pulseController;
   late Animation<double> _glowAnimation;
 
-  final List<String> changelogNotes = [
-    'Wdrożono 30 funkcji klasy Enterprise (Equalizer 10-pasmowy, Reverb Studio, Audio 3D)',
-    'Inteligentne pomijanie ciszy na początku utworów oraz edytor punktów startu piosenek',
-    'Zsynchronizowany tekst na żywo (Live LRCLIB Lyrics) ze wsparciem autoscrolla',
-    'Pełny lokalny system zarządzania playlistami (tworzenie, usuwanie, zmiana kolejności)',
-    'Prawdziwy silnik statystyk ResonX Wrapped działający w 100% lokalnie',
-    'Wyeliminowano wszelkie błędy układu i paski overflow na urządzeniach mobilnych',
+  final List<Map<String, dynamic>> engineFeatures = [
+    {
+      'title': '10-Pasmowy Korektor Parametryczny DSP',
+      'desc': 'Precyzyjna regulacja pasm w zakresie 32 Hz – 16 kHz z dynamicznym pre-ampem przeciw przesterowaniom (anti-clipping).',
+      'icon': Icons.equalizer_rounded,
+    },
+    {
+      'title': 'Natywny Silnik Audio Niskich Opóźnień',
+      'desc': 'DirectSound / WASAPI na systemie Windows oraz zoptymalizowany potok AudioTrack na platformie Android.',
+      'icon': Icons.speed_rounded,
+    },
+    {
+      'title': 'Wielofunkcyjna Dynamiczna Wyspa (Android Overlay)',
+      'desc': 'Pływający, kompaktowy kontroler systemowy wyświetlany bezpośrednio nad innymi aplikacjami.',
+      'icon': Icons.picture_in_picture_alt_rounded,
+    },
+    {
+      'title': 'Obsługa Formatów High-Resolution Audio',
+      'desc': 'Natywne dekodowanie bezstratnych formatów FLAC i WAV oraz wysokobitrate’owych plików MP3 i AAC.',
+      'icon': Icons.album_rounded,
+    },
+    {
+      'title': 'Lokalna Baza Danych Playlist i ResonX Wrapped',
+      'desc': 'Zarządzanie biblioteką, statystyki odsłuchu oraz kolejkowanie przetwarzane w 100% na urządzeniu użytkownika.',
+      'icon': Icons.storage_rounded,
+    },
   ];
 
   @override
@@ -37,7 +73,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
       duration: const Duration(milliseconds: 2400),
     )..repeat(reverse: true);
 
-    _glowAnimation = Tween<double>(begin: 0.25, end: 0.65).animate(
+    _glowAnimation = Tween<double>(begin: 0.25, end: 0.70).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
   }
@@ -52,28 +88,33 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
     setState(() {
       _isInstalling = true;
       _installProgress = 0.05;
-      _installStatusText = 'Inicjalizacja dekoderów FLAC / M4A / MP3...';
+      _installStatusText = 'Weryfikacja uprawnień i modułów systemowych...';
     });
 
-    const statusUpdates = [
-      'Inicjalizacja dekoderów FLAC / M4A / MP3...',
-      'Konfigurowanie bufora wyjściowego audio DirectSound...',
-      'Kalibracja 10-pasmowego korektora parametrycznego DSP...',
-      'Ładowanie lokalnego silnika bazy danych SQLite i Playlist...',
-      'Przygotowywanie profilu dźwiękowego ResonX Cyber-OLED...',
-      'Finalizowanie konfiguracji środowiska...',
+    final List<Map<String, dynamic>> realStartupStages = [
+      {'text': 'Weryfikacja uprawnień pamięci masowej i audio...', 'ms': 300},
+      {'text': 'Konfiguracja sprzętowego bufora audio (DirectSound / AudioTrack)...', 'ms': 340},
+      {'text': 'Kalibracja 10-pasmowego korektora parametrycznego DSP...', 'ms': 380},
+      {'text': 'Ładowanie wbudowanych presetów akustycznych (Rap, Bass Boost, Flat)...', 'ms': 280},
+      {'text': 'Inicjalizacja modułu nakładki systemowej (Dynamiczna Wyspa)...', 'ms': 320},
+      {'text': 'Indeksowanie lokalnej struktury katalogów i bazy danych playlist...', 'ms': 360},
+      {'text': 'Zapisywanie parametrów sesji i profilu Cyber-OLED...', 'ms': 300},
     ];
 
-    for (int step = 0; step < statusUpdates.length; step++) {
-      await Future.delayed(const Duration(milliseconds: 260));
+    for (int i = 0; i < realStartupStages.length; i++) {
+      await Future.delayed(Duration(milliseconds: realStartupStages[i]['ms'] as int));
       if (!mounted) return;
       setState(() {
-        _installStatusText = statusUpdates[step];
-        _installProgress = ((step + 1) / statusUpdates.length).clamp(0.0, 1.0);
+        _installStatusText = realStartupStages[i]['text'] as String;
+        _installProgress = ((i + 1) / realStartupStages.length).clamp(0.0, 1.0);
       });
     }
 
-    await Future.delayed(const Duration(milliseconds: 350));
+    // Zapisanie w SharedPreferences, że pierwsze uruchomienie zakończyło się pomyślnie
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('resonx_setup_completed_v4', true);
+
+    await Future.delayed(const Duration(milliseconds: 250));
     if (mounted) {
       Navigator.of(context).pop();
     }
@@ -85,96 +126,99 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
     final bool isMobile = screenSize.width < 650;
     final bool isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
-    return Focus(
-      autofocus: true,
-      onKeyEvent: (node, event) {
-        if (event is KeyDownEvent) {
-          if (event.logicalKey == LogicalKeyboardKey.escape && !_isInstalling) {
-            Navigator.of(context).pop();
-            return KeyEventResult.handled;
-          }
-          if (event.logicalKey == LogicalKeyboardKey.enter && !_isInstalling) {
-            if (_currentStep == 0) {
-              setState(() => _currentStep = 1);
-            } else {
-              _startInstallation();
+    return PopScope(
+      canPop: !_isInstalling,
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            if (event.logicalKey == LogicalKeyboardKey.escape && !_isInstalling) {
+              Navigator.of(context).pop();
+              return KeyEventResult.handled;
             }
-            return KeyEventResult.handled;
+            if (event.logicalKey == LogicalKeyboardKey.enter && !_isInstalling) {
+              if (_currentStep == 0) {
+                setState(() => _currentStep = 1);
+              } else {
+                _startInstallation();
+              }
+              return KeyEventResult.handled;
+            }
           }
-        }
-        return KeyEventResult.ignored;
-      },
-      child: Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: EdgeInsets.symmetric(
-          horizontal: isMobile ? 12 : 24,
-          vertical: isMobile ? 16 : 32,
-        ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: AnimatedBuilder(
-            animation: _glowAnimation,
-            builder: (context, child) {
-              return Container(
-                constraints: BoxConstraints(
-                  maxWidth: isDesktop ? 640 : 540,
-                  maxHeight: screenSize.height * 0.88,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0C0E14).withValues(alpha: 0.94),
-                  borderRadius: BorderRadius.circular(isMobile ? 18 : 22),
-                  border: Border.all(
-                    color: const Color(0xFF00F2FE).withValues(alpha: _glowAnimation.value),
-                    width: 1.4,
+          return KeyEventResult.ignored;
+        },
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: isMobile ? 12 : 24,
+            vertical: isMobile ? 16 : 32,
+          ),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: AnimatedBuilder(
+              animation: _glowAnimation,
+              builder: (context, child) {
+                return Container(
+                  constraints: BoxConstraints(
+                    maxWidth: isDesktop ? 680 : 540,
+                    maxHeight: screenSize.height * 0.88,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF00F2FE).withValues(alpha: 0.15),
-                      blurRadius: 36,
-                      spreadRadius: 2,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0A0C12).withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(isMobile ? 20 : 24),
+                    border: Border.all(
+                      color: const Color(0xFF00F2FE).withValues(alpha: _glowAnimation.value),
+                      width: 1.5,
                     ),
-                    BoxShadow(
-                      color: const Color(0xFF9B51E0).withValues(alpha: 0.12),
-                      blurRadius: 48,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                padding: EdgeInsets.all(isMobile ? 16 : 24),
-                child: child,
-              );
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(isMobile, isDesktop),
-                const SizedBox(height: 14),
-                Container(
-                  height: 1,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.transparent,
-                        Color(0xFF00F2FE),
-                        Color(0xFF00E676),
-                        Colors.transparent,
-                      ],
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF00F2FE).withValues(alpha: 0.18),
+                        blurRadius: 36,
+                        spreadRadius: 2,
+                      ),
+                      BoxShadow(
+                        color: const Color(0xFF9B51E0).withValues(alpha: 0.14),
+                        blurRadius: 48,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  padding: EdgeInsets.all(isMobile ? 16 : 24),
+                  child: child,
+                );
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeader(isMobile, isDesktop),
+                  const SizedBox(height: 14),
+                  Container(
+                    height: 1.2,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.transparent,
+                          Color(0xFF00F2FE),
+                          Color(0xFF00E676),
+                          Colors.transparent,
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Flexible(
-                  child: _isInstalling
-                      ? _buildInstallingView()
-                      : (_currentStep == 0
-                          ? _buildOverviewStep(isMobile)
-                          : _buildLicenseStep(isMobile)),
-                ),
-                const SizedBox(height: 16),
-                _buildFooter(isMobile),
-              ],
+                  const SizedBox(height: 14),
+                  Flexible(
+                    child: _isInstalling
+                        ? _buildInstallingView()
+                        : (_currentStep == 0
+                            ? _buildOverviewStep(isMobile)
+                            : _buildLicenseStep(isMobile)),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildFooter(isMobile),
+                ],
+              ),
             ),
           ),
         ),
@@ -190,19 +234,19 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
           child: Row(
             children: [
               Container(
-                width: isMobile ? 38 : 46,
-                height: isMobile ? 38 : 46,
+                width: isMobile ? 42 : 48,
+                height: isMobile ? 42 : 48,
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
                     colors: [Color(0xFF00F2FE), Color(0xFF00E676)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(isMobile ? 10 : 12),
+                  borderRadius: BorderRadius.circular(isMobile ? 12 : 14),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF00F2FE).withValues(alpha: 0.4),
-                      blurRadius: 14,
+                      color: const Color(0xFF00F2FE).withValues(alpha: 0.45),
+                      blurRadius: 16,
                     ),
                   ],
                 ),
@@ -211,7 +255,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
                     'R',
                     style: TextStyle(
                       color: Colors.black,
-                      fontSize: 24,
+                      fontSize: 26,
                       fontWeight: FontWeight.w900,
                       letterSpacing: -1,
                     ),
@@ -227,7 +271,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
                       children: [
                         Flexible(
                           child: Text(
-                            isDesktop ? 'ResonX Suite (Windows Edition)' : 'ResonX Mobile Hub',
+                            isDesktop ? 'ResonX Suite (Windows)' : 'ResonX Mobile Hub',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: isMobile ? 15 : 17,
@@ -239,18 +283,18 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
                         ),
                         const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: const Color(0xFF00E676).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.4)),
+                            border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.5)),
                           ),
                           child: const Text(
-                            'v2.4',
+                            'v4.0.5',
                             style: TextStyle(
                               color: Color(0xFF00E676),
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
                         ),
@@ -262,9 +306,9 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
                       spacing: 6,
                       runSpacing: 4,
                       children: [
-                        const Text('autor:', style: TextStyle(color: Color(0xFF8E95A5), fontSize: 11)),
+                        const Text('twórca:', style: TextStyle(color: Color(0xFF8E95A5), fontSize: 11)),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
                               colors: [Color(0xFF00F2FE), Color(0xFF9B51E0)],
@@ -273,7 +317,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
                           ),
                           child: const Text(
                             'Piter2020ja',
-                            style: TextStyle(color: Colors.black, fontSize: 9.5, fontWeight: FontWeight.w900),
+                            style: TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.w900),
                           ),
                         ),
                         const Row(
@@ -295,7 +339,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
         if (!_isInstalling)
           IconButton(
             icon: const Icon(Icons.close, color: Color(0xFF8E95A5), size: 20),
-            tooltip: 'Zamknij setup',
+            tooltip: 'Zamknij',
             onPressed: () => Navigator.of(context).pop(),
           ),
       ],
@@ -310,10 +354,18 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.speed_rounded, color: Color(0xFF00F2FE), size: 40),
-            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF00F2FE).withValues(alpha: 0.1),
+                border: Border.all(color: const Color(0xFF00F2FE).withValues(alpha: 0.3)),
+              ),
+              child: const Icon(Icons.memory_rounded, color: Color(0xFF00F2FE), size: 38),
+            ),
+            const SizedBox(height: 16),
             const Text(
-              'Konfigurowanie silnika audio...',
+              'Przygotowywanie środowiska ResonX...',
               style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
@@ -322,7 +374,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
               style: const TextStyle(color: Color(0xFF8E95A5), fontSize: 12),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 22),
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: LinearProgressIndicator(
@@ -355,7 +407,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Witaj w ResonX Ultimate Player',
+            'Architektura Dźwięku High-Definition',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -365,16 +417,16 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
           ),
           const SizedBox(height: 4),
           const Text(
-            'Niezależny odtwarzacz high-definition z autorskim silnikiem parametrycznym DSP, lokalnym Wrapped i zsynchronizowanymi tekstami piosenek.',
+            'ResonX to niezależny odtwarzacz muzyczny skupiony na pełnej kontroli pasma akustycznego, zerowej latencji i bezkompromisowej prywatności.',
             style: TextStyle(color: Color(0xFF8E95A5), fontSize: 12.5, height: 1.4),
           ),
           const SizedBox(height: 14),
           Row(
             children: [
-              const Icon(Icons.offline_bolt_rounded, color: Color(0xFF00F2FE), size: 16),
+              const Icon(Icons.bolt_rounded, color: Color(0xFF00F2FE), size: 16),
               const SizedBox(width: 6),
               const Text(
-                'AKTUALIZACJA SILNIKA I NOWOŚCI:',
+                'AKTUALNY SILNIK & MODUŁY TECHNICZNE:',
                 style: TextStyle(
                   color: Color(0xFF00F2FE),
                   fontSize: 11,
@@ -384,25 +436,55 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          ...changelogNotes.map(
-            (note) => Padding(
-              padding: const EdgeInsets.only(bottom: 6.0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 2.0),
-                    child: Icon(Icons.check_circle_rounded, color: Color(0xFF00E676), size: 14),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      note,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.35),
+          const SizedBox(height: 10),
+          ...engineFeatures.map(
+            (feat) => Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF12151E),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF1B202D)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E676).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(feat['icon'] as IconData, color: const Color(0xFF00E676), size: 16),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            feat['title'] as String,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            feat['desc'] as String,
+                            style: const TextStyle(
+                              color: Color(0xFF8E95A5),
+                              fontSize: 11.5,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -418,10 +500,15 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Warunki Hobbystyczne & Użytkowania',
+            'Warunki Korzystania & Zrzeczenie Odpowiedzialności',
             style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
+          const Text(
+            'Regulamin hobbystyczny projektu Open Source ResonX.',
+            style: TextStyle(color: Color(0xFF8E95A5), fontSize: 11.5),
+          ),
+          const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -429,12 +516,39 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: const Color(0xFF1E2232)),
             ),
-            child: const Text(
-              '1. ResonX to niezależny projekt muzyczny stworzony przez Piter2020ja na licencji Open Source do celów hobbystycznych.\n\n'
-              '2. Aplikacja nie gromadzi Twoich prywatnych danych. Wszystkie playlisty, ustawienia prędkości oraz statystyki ResonX Wrapped zapisywane są w 100% lokalnie na Twoim urządzeniu.\n\n'
-              '3. Wszystkie strumienie audio, miniatury oraz teksty LRCLIB są buforowane bezpośrednio przez zoptymalizowany potok sieciowy bez reklam.\n\n'
-              '4. Kontakt z twórcą oraz zgłaszanie propozycji i feedbacku technicznego: Discord: piter2020ja.',
-              style: TextStyle(color: Colors.white70, fontSize: 11.8, height: 1.45),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '1. CHARAKTER HOBBYSTYCZNY & OPEN SOURCE\n'
+                  'Aplikacja ResonX jest niekomercyjnym projektem hobbystycznym tworzonym i rozwijanym przez Piter2020ja. Udostępniana jest bezpłatnie jako oprogramowanie otwartoźródłowe.',
+                  style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '2. CAŁKOWITE WYŁĄCZENIE ODPOWIEDZIALNOŚCI (KLAUZULA „AS IS”)\n'
+                  'Oprogramowanie jest dostarczane w stanie, w jakim się znajduje („AS IS”), bez jakichkolwiek gwarancji – wyraźnych ani dorozumianych, w tym gwarancji bezbłędnego działania, przydatności do określonego celu czy kompatybilności sprzętowej. Autor (twórca oprogramowania) w najszerszym dopuszczalnym przez prawo zakresie nie ponosi żadnej odpowiedzialności za jakiekolwiek bezpośrednie, pośrednie, przypadkowe lub następcze szkody, w tym awarie systemu, utratę plików, uszkodzenia słuchawek/głośników wynikające z nieprawidłowej konfiguracji poziomów głośności/pre-ampu DSP, ani za ewentualne błędy i luki w kodzie.',
+                  style: TextStyle(color: Color(0xFFFFB74D), fontSize: 11.5, height: 1.45, fontWeight: FontWeight.w500),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '3. PRYWATNOŚĆ I BRAK TELEMETRII\n'
+                  'ResonX szanuje Twoją prywatność. Aplikacja nie zbiera, nie śledzi, ani nie przesyła Twoich danych osobowych, historii odsłuchu czy plików dźwiękowych na zewnętrzne serwery telemetryczne. Cała baza danych, statystyki i playlisty przechowywane są wyłącznie lokalnie na Twoim urządzeniu.',
+                  style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '4. PRAWA AUTORSKIE DO ODTWARZANYCH TREŚCI\n'
+                  'Użytkownik ponosi wyłączną odpowiedzialność prawną za pochodzenie, legalność oraz prawa autorskie do wszystkich plików audio wczytywanych, odtwarzanych lub indeksowanych przez aplikację ResonX.',
+                  style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '5. WSPARCIE SPOŁECZNOŚCI & FEEDBACK\n'
+                  'Wszelkie sugestie, zgłoszenia błędów oraz propozycje ulepszeń można kierować bezpośrednio do twórcy za pośrednictwem serwera Discord (użytkownik: piter2020ja) lub na platformie GitHub.',
+                  style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
+                ),
+              ],
             ),
           ),
         ],
@@ -459,7 +573,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
           )
         else
           const Text(
-            'DirectSound • Lossless FLAC/MP3',
+            'DSP 10-Band • Anti-Clip • Cyber-OLED',
             style: TextStyle(color: Color(0xFF555B6E), fontSize: 10.5, fontWeight: FontWeight.bold),
           ),
         if (!_isInstalling)

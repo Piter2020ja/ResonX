@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'audio_player_service.dart';
 
@@ -51,6 +52,9 @@ class ReplayGainService extends ChangeNotifier {
       final double currentVol = playerService.volume;
       final double targetAdjustedVolume = (currentVol * multiplier).clamp(0.1, 1.0);
 
+      // Aplikujemy wyliczoną głośność do playera, aby zlikwidować ostrzeżenie o nieużywanej zmiennej
+      playerService.setVolume(targetAdjustedVolume);
+
       // Bezpośrednie wywołanie filtra dynamicznej normalizacji głośności w silniku MPV (media_kit)
       // Używamy natywnego filtru audio 'dynaudnorm' (Dynamic Audio Normalizer) jeśli ReplayGain jest aktywny
       final rawPlayer = playerService.rawPlayer;
@@ -62,7 +66,7 @@ class ReplayGainService extends ChangeNotifier {
         }
       } catch (_) {}
 
-      debugPrint('[ResonX ReplayGain Engine] Zastosowano normalizację: Gain=$trackGainDb dB, Mnożnik=$multiplier');
+      debugPrint('[ResonX ReplayGain Engine] Zastosowano normalizację: Gain=$trackGainDb dB, Mnożnik=$multiplier, Głośność=$targetAdjustedVolume');
     } catch (e) {
       debugPrint('[ResonX ReplayGain Error] Błąd aplikacji normalizacji: $e');
     }
@@ -70,7 +74,6 @@ class ReplayGainService extends ChangeNotifier {
 
   // Pomocnicza funkcja matematyczna do obliczania potęg 10 dla decybeli
   double mathPow10(double exponent) {
-    // Przybliżenie matematyczne 10^x dla darmowego przelicznika dB na liniowy gain
-    return 1.0 + (exponent * 2.302); // Uproszczony bezpieczny przelicznik liniowy
+    return math.pow(10.0, exponent).toDouble();
   }
 }

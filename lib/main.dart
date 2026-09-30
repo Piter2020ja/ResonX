@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 
 import 'core/theme.dart';
@@ -90,7 +90,7 @@ class _TrueSystemOverlayIslandState extends State<TrueSystemOverlayIsland>
     )..repeat();
 
     try {
-      _overlaySub = FlutterOverlayWindow.overlayListener.listen((dynamic event) {
+      _overlaySub = _safeOverlayStream.listen((dynamic event) {
         if (!mounted || event == null) return;
         try {
           Map<String, dynamic> parsed;
@@ -732,17 +732,27 @@ class _AppRootLauncherState extends State<AppRootLauncher> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _triggerWelcomeSetup();
+      _checkAndTriggerWelcomeSetup();
     });
   }
 
-  void _triggerWelcomeSetup() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black.withValues(alpha: 0.75),
-      builder: (dialogContext) => const ResonXWelcomeSetupDialog(),
-    );
+  Future<void> _checkAndTriggerWelcomeSetup() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bool isCompleted = prefs.getBool('resonx_setup_completed_v4') ?? false;
+
+      // Wyświetla konfigurację TYLKO wtedy, gdy użytkownik jeszcze jej nie ukończył
+      if (!isCompleted && mounted) {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          barrierColor: Colors.black.withValues(alpha: 0.75),
+          builder: (dialogContext) => const ResonXWelcomeSetupDialog(),
+        );
+      }
+    } catch (e) {
+      debugPrint('[ResonX Setup Gate] Błąd sprawdzania SharedPreferences: $e');
+    }
   }
 
   @override
