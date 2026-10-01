@@ -22,12 +22,21 @@ class SettingsService extends ChangeNotifier {
   // --- Prawdziwy stan wykrywania ciszy i intro (Silence Trim / Intro Skip) ---
   bool _silenceTrimEnabled = true;
 
+  // --- Tryb Słaby Internet / Wolne Łącze (Auto-Reconnect & Mniejszy Chunk Buffer) ---
+  bool _weakNetworkOptimization = false;
+
   bool get ignoreAudioFocus => _ignoreAudioFocus;
   bool get pauseOnPhoneCall => _pauseOnPhoneCall;
   bool get autoDownloadFavorites => _autoDownloadFavorites;
   String get preferredAudioQuality => _preferredAudioQuality;
   bool get batterySaverEnabled => _batterySaverEnabled;
   bool get silenceTrimEnabled => _silenceTrimEnabled;
+  bool get weakNetworkOptimization => _weakNetworkOptimization;
+
+  // Dynamiczne parametry bufora w zależności od stanu sieci
+  int get optimalInitialBufferBytes => _weakNetworkOptimization ? 128 * 1024 : 256 * 1024;
+  int get networkTimeoutSeconds => _weakNetworkOptimization ? 25 : 12;
+  int get maxNetworkRetries => _weakNetworkOptimization ? 5 : 2;
 
   Future<File> _getSettingsFile() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -51,6 +60,7 @@ class SettingsService extends ChangeNotifier {
           _preferredAudioQuality = data['preferred_quality'] as String? ?? 'HQ (320kbps)';
           _batterySaverEnabled = data['battery_saver_enabled'] as bool? ?? false;
           _silenceTrimEnabled = data['silence_trim_enabled'] as bool? ?? true;
+          _weakNetworkOptimization = data['weak_network_optimization'] as bool? ?? false;
           notifyListeners();
         }
       }
@@ -69,6 +79,7 @@ class SettingsService extends ChangeNotifier {
         'preferred_quality': _preferredAudioQuality,
         'battery_saver_enabled': _batterySaverEnabled,
         'silence_trim_enabled': _silenceTrimEnabled,
+        'weak_network_optimization': _weakNetworkOptimization,
       };
       await file.writeAsString(jsonEncode(data));
     } catch (e) {
@@ -113,5 +124,13 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     await _saveSettings();
     debugPrint('[ResonX Settings] Wykrywanie ciszy i intro zaktualizowane: $value');
+  }
+
+  // --- Metoda włączająca/wyłączająca optymalizację pod słaby internet ---
+  Future<void> setWeakNetworkOptimization(bool value) async {
+    _weakNetworkOptimization = value;
+    notifyListeners();
+    await _saveSettings();
+    debugPrint('[ResonX Settings] Tryb słabego internetu zaktualizowany: $value');
   }
 }

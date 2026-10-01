@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
-import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 
 import '../../models/track.dart';
 import '../../models/user_session.dart';
@@ -66,8 +64,6 @@ class _HomeScreenState extends State<HomeScreen>
   bool _autoSkipSilenceIntro = true;
   final int _defaultSilenceTrimSeconds = 2;
 
-  final Map<String, int> _trackCustomStartOffsets = <String, int>{};
-
   int _totalListenedSeconds = 18450;
   final Map<String, int> _artistPlayCounts = <String, int>{
     'Avi / Louis Villain': 42,
@@ -81,20 +77,6 @@ class _HomeScreenState extends State<HomeScreen>
   late Animation<double> _glowAnimation;
 
   List<Track> _onlineFetchedTracks = [];
-
-  String _activeEqPreset = 'Hip-Hop Punch';
-  final Map<String, double> _equalizerBands = {
-    '32Hz': 5.0,
-    '64Hz': 4.2,
-    '125Hz': 2.5,
-    '250Hz': 0.0,
-    '500Hz': -1.2,
-    '1kHz': 1.5,
-    '2kHz': 2.8,
-    '4kHz': 3.6,
-    '8kHz': 4.2,
-    '16kHz': 5.0,
-  };
 
   final Set<String> _offlineDownloadedIds = <String>{};
 
@@ -198,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen>
       debugPrint('[ResonX Search Engine] Pobieranie utworów dla: "$query"');
       final fetched = await ApiService.instance.searchTracks(
         query,
-        includeYouTube: true,
+        includeYouTube: false,
         includeSoundCloud: true,
         targetResultsCount: 45,
       );
@@ -351,16 +333,14 @@ class _HomeScreenState extends State<HomeScreen>
         });
       }
 
-      int startOffset = 0;
-      if (_trackCustomStartOffsets.containsKey(track.id)) {
-        startOffset = _trackCustomStartOffsets[track.id]!;
-      } else if (_autoSkipSilenceIntro) {
+      int startOffset = DatabaseService.instance.getTrackStartOffset(track.id);
+      if (startOffset <= 0 && _autoSkipSilenceIntro) {
         startOffset = _defaultSilenceTrimSeconds;
       }
 
       if (startOffset > 0) {
         await Future.delayed(const Duration(milliseconds: 300));
-        playerService.player.seek(Duration(seconds: startOffset));
+        playerService.seek(Duration(seconds: startOffset));
       }
     } catch (e) {
       debugPrint('[ResonX Playback Error] $e');
@@ -370,7 +350,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _showSetTrackStartOffsetModal(BuildContext context, Track track, AudioPlayerService playerService) {
-    final currentOffset = _trackCustomStartOffsets[track.id] ?? 0;
+    final currentOffset = DatabaseService.instance.getTrackStartOffset(track.id);
     double sliderVal = currentOffset.toDouble();
     final int maxSec = track.durationSeconds > 0 ? track.durationSeconds : 300;
 
@@ -438,6 +418,11 @@ class _HomeScreenState extends State<HomeScreen>
                           sliderVal = v;
                         });
                       },
+                      onChangeEnd: (v) {
+                        setModalState(() {
+                          sliderVal = v;
+                        });
+                      },
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -481,27 +466,29 @@ class _HomeScreenState extends State<HomeScreen>
                       TextButton.icon(
                         icon: const Icon(Icons.restart_alt, color: ResonXPalette.neonCoral, size: 16),
                         label: const Text('Resetuj (0:00)', style: TextStyle(color: ResonXPalette.neonCoral)),
-                        onPressed: () {
-                          setState(() {
-                            _trackCustomStartOffsets.remove(track.id);
-                          });
-                          Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Zresetowano punkt startu utworu.')),
-                          );
+                        onPressed: () async {
+                          await DatabaseService.instance.removeTrackStartOffset(track.id);
+                          if (mounted) setState(() {});
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Zresetowano punkt startu utworu.')),
+                            );
+                          }
                         },
                       ),
                       const Spacer(),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(backgroundColor: ResonXPalette.neonCyan, foregroundColor: Colors.black),
-                        onPressed: () {
-                          setState(() {
-                            _trackCustomStartOffsets[track.id] = sliderVal.toInt();
-                          });
-                          Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Zapisano: "${track.title}" zacznie się od $formattedTime!')),
-                          );
+                        onPressed: () async {
+                          await DatabaseService.instance.setTrackStartOffset(track.id, sliderVal.toInt());
+                          if (mounted) setState(() {});
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Zapisano: "${track.title}" zacznie się od $formattedTime!')),
+                            );
+                          }
                         },
                         child: const Text('Zapisz punkt startu', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
@@ -716,6 +703,8 @@ class _HomeScreenState extends State<HomeScreen>
                               _currentPlaybackSpeed = val;
                               textController.text = val.toStringAsFixed(2);
                             });
+                          },
+                          onChangeEnd: (val) {
                             playerService.player.setRate(val);
                           },
                         ),
@@ -770,7 +759,6 @@ class _HomeScreenState extends State<HomeScreen>
                                 hintStyle: const TextStyle(color: ResonXPalette.textDim),
                                 filled: true,
                                 fillColor: ResonXPalette.surfaceSearchBar,
-                                isDense: true,
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                               ),
                             ),
@@ -832,7 +820,7 @@ class _HomeScreenState extends State<HomeScreen>
             hintText: 'Nazwa Twojej playlisty...',
             hintStyle: TextStyle(color: ResonXPalette.textDim),
             enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: ResonXPalette.borderLight)),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: ResonXPalette.neonCyan)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: ResonXPalette.borderLight)),
           ),
         ),
         actions: [
@@ -1465,135 +1453,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showDspEqualizerModal(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: ResonXPalette.surfaceCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        side: BorderSide(color: ResonXPalette.neonCyan, width: 1.2),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Container(
-              height: 480,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.tune, color: ResonXPalette.neonCyan, size: 22),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'ResonX Ultra DSP Equalizer',
-                          style: TextStyle(color: ResonXPalette.textPrimary, fontSize: 15, fontWeight: FontWeight.w800),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      DropdownButton<String>(
-                        dropdownColor: ResonXPalette.surfaceCardHover,
-                        value: _activeEqPreset,
-                        underline: const SizedBox(),
-                        style: const TextStyle(color: ResonXPalette.neonMint, fontWeight: FontWeight.bold),
-                        items: ['Flat Studio', 'Hip-Hop Punch', 'Bass Boost', 'Crisp Vocals', 'Electronic Drive'].map((p) {
-                          return DropdownMenuItem(value: p, child: Text(p));
-                        }).toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setModalState(() {
-                              _activeEqPreset = val;
-                              if (val == 'Bass Boost') {
-                                _equalizerBands['32Hz'] = 7.0;
-                                _equalizerBands['64Hz'] = 6.0;
-                                _equalizerBands['125Hz'] = 4.0;
-                              } else if (val == 'Flat Studio') {
-                                _equalizerBands.updateAll((key, value) => 0.0);
-                              } else if (val == 'Crisp Vocals') {
-                                _equalizerBands['1kHz'] = 3.5;
-                                _equalizerBands['2kHz'] = 4.5;
-                                _equalizerBands['4kHz'] = 3.0;
-                              }
-                            });
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      child: Row(
-                        children: _equalizerBands.entries.map((entry) {
-                          return Container(
-                            width: 58,
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: Column(
-                              children: [
-                                Text('${entry.value > 0 ? '+' : ''}${entry.value.toStringAsFixed(1)}dB', style: const TextStyle(color: ResonXPalette.textDim, fontSize: 10)),
-                                Expanded(
-                                  child: RotatedBox(
-                                    quarterTurns: 3,
-                                    child: SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        activeTrackColor: ResonXPalette.neonCyan,
-                                        inactiveTrackColor: ResonXPalette.surfaceSearchBar,
-                                        thumbColor: ResonXPalette.neonMint,
-                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                      ),
-                                      child: Slider(
-                                        min: -12.0,
-                                        max: 12.0,
-                                        value: entry.value,
-                                        onChanged: (v) {
-                                          setModalState(() {
-                                            _equalizerBands[entry.key] = v;
-                                          });
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Text(entry.key, style: const TextStyle(color: ResonXPalette.textSecondary, fontSize: 11, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Preamp Anti-Clipping: AKTYWNY',
-                          style: TextStyle(color: ResonXPalette.textDim, fontSize: 11.5),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: ResonXPalette.neonCyan, foregroundColor: Colors.black),
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Zastosuj DSP', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   void _showMoodMatrixDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -1713,6 +1572,8 @@ class _HomeScreenState extends State<HomeScreen>
         side: BorderSide(color: ResonXPalette.borderLight, width: 1),
       ),
       builder: (ctx) {
+        final currentSavedOffset = DatabaseService.instance.getTrackStartOffset(track.id);
+
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Column(
@@ -1755,8 +1616,8 @@ class _HomeScreenState extends State<HomeScreen>
                 leading: const Icon(Icons.av_timer_rounded, color: ResonXPalette.neonCyan),
                 title: const Text('Ustaw punkt startu (Pomiń intro)', style: TextStyle(color: Colors.white)),
                 subtitle: Text(
-                  _trackCustomStartOffsets.containsKey(track.id)
-                      ? 'Obecnie: ${_trackCustomStartOffsets[track.id]}s'
+                  currentSavedOffset > 0
+                      ? 'Obecnie zapamiętane: ${currentSavedOffset}s'
                       : 'Odtwarzaj od początku (0:00)',
                   style: const TextStyle(color: ResonXPalette.textDim, fontSize: 12),
                 ),
@@ -2158,33 +2019,6 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               const SizedBox(height: 22),
               _buildMobileToolCard(
-                icon: Icons.open_in_browser_rounded,
-                title: 'Systemowa Pływająca Wyspa (Overlay)',
-                subtitle: 'Włącz/wyłącz pigułkę nad wszystkimi aplikacjami',
-                onTap: () async {
-                  final hasPerm = await FlutterOverlayWindow.isPermissionGranted();
-                  if (!hasPerm) {
-                    await FlutterOverlayWindow.requestPermission();
-                  } else {
-                    final isActive = await FlutterOverlayWindow.isActive();
-                    if (isActive) {
-                      await FlutterOverlayWindow.closeOverlay();
-                    } else {
-                      await FlutterOverlayWindow.showOverlay(
-                        enableDrag: true,
-                        overlayTitle: "ResonX Floating Island",
-                        overlayContent: 'Dynamiczny odtwarzacz w toku...',
-                        flag: OverlayFlag.defaultFlag,
-                        visibility: NotificationVisibility.visibilityPublic,
-                        positionGravity: PositionGravity.auto,
-                        height: 240,
-                        width: WindowSize.matchParent,
-                      );
-                    }
-                  }
-                },
-              ),
-              _buildMobileToolCard(
                 icon: Icons.auto_graph_rounded,
                 title: 'ResonX Wrapped & Statystyki (Live)',
                 subtitle: 'Pełne statystyki czasu i ulubionych wykonawców',
@@ -2195,12 +2029,6 @@ class _HomeScreenState extends State<HomeScreen>
                 title: 'Prędkość odtwarzania (DSP Rate)',
                 subtitle: 'Obecnie: ${_currentPlaybackSpeed.toStringAsFixed(2)}x (Wpisz z klawiatury)',
                 onTap: () => _showPlaybackSpeedModal(context, playerService),
-              ),
-              _buildMobileToolCard(
-                icon: Icons.tune,
-                title: 'Korektor dźwięku DSP',
-                subtitle: '10-pasmowy equalizer parametryczny',
-                onTap: () => _showDspEqualizerModal(context),
               ),
               _buildMobileToolCard(
                 icon: Icons.music_video_rounded,
@@ -2215,7 +2043,7 @@ class _HomeScreenState extends State<HomeScreen>
                   );
                 },
               ),
-              _buildMobileToolCard(
+              _buildMoodTileCard(
                 icon: Icons.mood,
                 title: 'Nastrojowy Matrix',
                 subtitle: 'Profile dźwiękowe dla nastroju',
@@ -2267,6 +2095,24 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Widget _buildMoodTileCard({required IconData icon, required String title, required String subtitle, required VoidCallback onTap}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: ResonXPalette.surfaceCard,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: ResonXPalette.borderLight),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: ResonXPalette.neonCyan),
+        title: Text(title, style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.bold)),
+        subtitle: Text(subtitle, style: const TextStyle(color: ResonXPalette.textDim, fontSize: 11)),
+        trailing: const Icon(Icons.arrow_forward_ios, size: 13, color: ResonXPalette.textDim),
+        onTap: onTap,
+      ),
+    );
+  }
+
   Widget _buildLibraryPill(String label, String navKey, IconData icon, Color color, int count) {
     final isSelected = _selectedNav == navKey;
     return Expanded(
@@ -2274,7 +2120,7 @@ class _HomeScreenState extends State<HomeScreen>
         onTap: () => _onNavSelected(navKey),
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
           decoration: BoxDecoration(
             color: isSelected ? color.withValues(alpha: 0.15) : ResonXPalette.surfaceCard,
             borderRadius: BorderRadius.circular(10),
@@ -2282,15 +2128,20 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 16, color: isSelected ? color : ResonXPalette.textDim),
-              const SizedBox(width: 8),
-              Text(
-                '$label ($count)',
-                style: TextStyle(
-                  color: isSelected ? Colors.white : ResonXPalette.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  '$label ($count)',
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : ResonXPalette.textSecondary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -2332,7 +2183,6 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       child: Row(
         children: [
-          // Lewa strona: logo i etykiety
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2380,7 +2230,6 @@ class _HomeScreenState extends State<HomeScreen>
 
           const SizedBox(width: 6),
 
-          // Środkowa dynamiczna kapsułka (Island Pill) - chroniona przed overflow
           if (currentTrack != null)
             Expanded(
               child: Center(
@@ -2423,7 +2272,6 @@ class _HomeScreenState extends State<HomeScreen>
           else
             const Spacer(),
 
-          // Prawa strona akcji: ikony i przełącznik z zabezpieczeniem
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2449,11 +2297,6 @@ class _HomeScreenState extends State<HomeScreen>
                 icon: Icons.speed_rounded,
                 tooltip: 'Prędkość odtwarzania (${_currentPlaybackSpeed.toStringAsFixed(2)}x)',
                 onTap: () => _showPlaybackSpeedModal(context, playerService),
-              ),
-              _buildHeaderIconButton(
-                icon: Icons.tune_rounded,
-                tooltip: 'Korektor dźwięku (DSP Equalizer)',
-                onTap: () => _showDspEqualizerModal(context),
               ),
               _buildHeaderIconButton(
                 icon: isLoggedIn ? Icons.account_circle : Icons.account_circle_outlined,

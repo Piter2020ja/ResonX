@@ -89,6 +89,7 @@ class DatabaseService extends ChangeNotifier {
 
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
+  Completer<void>? _initCompleter;
 
   // Obiekt bazy wymagany przez auth_cloud_service.dart do logowania i synchronizacji konta
   final MockRawDbExecutor _mockDb = MockRawDbExecutor();
@@ -99,10 +100,31 @@ class DatabaseService extends ChangeNotifier {
   final List<UserPlaylist> _playlists = [];
   final List<Track> _offlineTracks = [];
 
+  // Trwałe przechowywanie punktów startu (Pomiń intro) dla konkretnych utworów
+  final Map<String, int> _trackStartOffsets = {};
+
+  // Trwałe przechowywanie pasm i presetu korektora DSP
+  String _activeEqPreset = 'Hip-Hop Punch';
+  final Map<String, double> _equalizerBands = {
+    '32Hz': 5.0,
+    '64Hz': 4.2,
+    '125Hz': 2.5,
+    '250Hz': 0.0,
+    '500Hz': -1.2,
+    '1kHz': 1.5,
+    '2kHz': 2.8,
+    '4kHz': 3.6,
+    '8kHz': 4.2,
+    '16kHz': 5.0,
+  };
+
   List<Track> get savedTracks => List.unmodifiable(_savedTracks);
   List<Track> get favoriteTracks => List.unmodifiable(_favoriteTracks);
   List<UserPlaylist> get playlists => List.unmodifiable(_playlists);
   List<Track> get offlineTracks => List.unmodifiable(_offlineTracks);
+  Map<String, int> get trackStartOffsets => Map.unmodifiable(_trackStartOffsets);
+  Map<String, double> get equalizerBands => Map.unmodifiable(_equalizerBands);
+  String get activeEqPreset => _activeEqPreset;
 
   int get favoritesCount => _favoriteTracks.length;
   int get playlistsCount => _playlists.length;
@@ -110,16 +132,27 @@ class DatabaseService extends ChangeNotifier {
 
   Future<void> init() async {
     if (_isInitialized) return;
+    if (_initCompleter != null) return _initCompleter!.future;
+
+    _initCompleter = Completer<void>();
+
     try {
       await _loadFavorites();
       await _loadPlaylists();
       await _loadOfflineTracks();
       await _loadSavedTracks();
+      await _loadTrackStartOffsets();
+      await _loadEqualizerSettings();
+
       _isInitialized = true;
+      _initCompleter!.complete();
       notifyListeners();
-      debugPrint('[ResonX Database] Baza zainicjalizowana. Ulubione: ${_favoriteTracks.length}, Playlisty: ${_playlists.length}');
+      debugPrint('[ResonX Database] Baza zainicjalizowana pomyślnie. Ulubione: ${_favoriteTracks.length}, Pobrane: ${_offlineTracks.length}, Playlisty: ${_playlists.length}, Offsety: ${_trackStartOffsets.length}');
     } catch (e, stack) {
       debugPrint('[ResonX Database Error] $e\n$stack');
+      if (!_initCompleter!.isCompleted) {
+        _initCompleter!.completeError(e, stack);
+      }
     }
   }
 
@@ -205,7 +238,9 @@ class DatabaseService extends ChangeNotifier {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd odczytu ulubionych: $e');
+    }
   }
 
   Future<void> _saveFavorites() async {
@@ -213,7 +248,9 @@ class DatabaseService extends ChangeNotifier {
       final file = await _getFile('favorites.json');
       final listData = _favoriteTracks.map((t) => t.toMap()).toList();
       await file.writeAsString(jsonEncode(listData));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd zapisu ulubionych: $e');
+    }
   }
 
   bool isFavorite(String trackId) {
@@ -265,7 +302,9 @@ class DatabaseService extends ChangeNotifier {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd odczytu playlist: $e');
+    }
   }
 
   Future<void> _savePlaylists() async {
@@ -273,7 +312,9 @@ class DatabaseService extends ChangeNotifier {
       final file = await _getFile('playlists.json');
       final listData = _playlists.map((p) => p.toMap()).toList();
       await file.writeAsString(jsonEncode(listData));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd zapisu playlist: $e');
+    }
   }
 
   Future<UserPlaylist> createPlaylist(String title, {String description = ''}) async {
@@ -340,13 +381,17 @@ class DatabaseService extends ChangeNotifier {
           _offlineTracks.clear();
           for (final item in decoded) {
             final t = Track.fromMap(Map<String, dynamic>.from(item as Map));
-            if (t.localPath != null && File(t.localPath!).existsSync()) {
-              _offlineTracks.add(t);
+            if (t.localPath != null && t.localPath!.isNotEmpty) {
+              if (File(t.localPath!).existsSync()) {
+                _offlineTracks.add(t);
+              }
             }
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd odczytu utworów offline: $e');
+    }
   }
 
   Future<void> _saveOfflineTracks() async {
@@ -354,7 +399,9 @@ class DatabaseService extends ChangeNotifier {
       final file = await _getFile('offline_tracks.json');
       final listData = _offlineTracks.map((t) => t.toMap()).toList();
       await file.writeAsString(jsonEncode(listData));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd zapisu utworów offline: $e');
+    }
   }
 
   Future<void> registerOfflineTrack(Track track, String localFilePath) async {
@@ -371,6 +418,128 @@ class DatabaseService extends ChangeNotifier {
   Future<void> unregisterOfflineTrack(String trackId) async {
     _offlineTracks.removeWhere((t) => t.id == trackId);
     await _saveOfflineTracks();
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // TRWAŁE PUNKTY STARTU UTWORÓW (POMIŃ INTRO)
+  // ---------------------------------------------------------------------------
+
+  Future<void> _loadTrackStartOffsets() async {
+    try {
+      final file = await _getFile('track_start_offsets.json');
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        if (content.trim().isNotEmpty) {
+          final Map<String, dynamic> decoded = jsonDecode(content);
+          _trackStartOffsets.clear();
+          decoded.forEach((key, value) {
+            if (value is num) {
+              _trackStartOffsets[key] = value.toInt();
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd odczytu punktów startu: $e');
+    }
+  }
+
+  Future<void> _saveTrackStartOffsets() async {
+    try {
+      final file = await _getFile('track_start_offsets.json');
+      await file.writeAsString(jsonEncode(_trackStartOffsets));
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd zapisu punktów startu: $e');
+    }
+  }
+
+  int getTrackStartOffset(String trackId) {
+    return _trackStartOffsets[trackId] ?? 0;
+  }
+
+  Future<void> setTrackStartOffset(String trackId, int secondsOffset) async {
+    if (secondsOffset <= 0) {
+      _trackStartOffsets.remove(trackId);
+    } else {
+      _trackStartOffsets[trackId] = secondsOffset;
+    }
+    await _saveTrackStartOffsets();
+    notifyListeners();
+  }
+
+  Future<void> removeTrackStartOffset(String trackId) async {
+    if (_trackStartOffsets.containsKey(trackId)) {
+      _trackStartOffsets.remove(trackId);
+      await _saveTrackStartOffsets();
+      notifyListeners();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // TRWAŁE USTAWIENIA KOREKTORA DSP (EQUALIZER)
+  // ---------------------------------------------------------------------------
+
+  Future<void> _loadEqualizerSettings() async {
+    try {
+      final file = await _getFile('dsp_equalizer.json');
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        if (content.trim().isNotEmpty) {
+          final Map<String, dynamic> decoded = jsonDecode(content);
+          if (decoded['preset'] is String) {
+            _activeEqPreset = decoded['preset'] as String;
+          }
+          if (decoded['bands'] is Map) {
+            final Map bandsMap = decoded['bands'] as Map;
+            bandsMap.forEach((k, v) {
+              if (v is num) {
+                _equalizerBands[k.toString()] = v.toDouble();
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd odczytu korektora DSP: $e');
+    }
+  }
+
+  Future<void> _saveEqualizerSettings() async {
+    try {
+      final file = await _getFile('dsp_equalizer.json');
+      final data = {
+        'preset': _activeEqPreset,
+        'bands': _equalizerBands,
+      };
+      await file.writeAsString(jsonEncode(data));
+    } catch (e) {
+      debugPrint('[ResonX Database] Błąd zapisu korektora DSP: $e');
+    }
+  }
+
+  Future<void> setEqualizerBand(String band, double gainDb) async {
+    _equalizerBands[band] = gainDb;
+    await _saveEqualizerSettings();
+    notifyListeners();
+  }
+
+  Future<void> setEqualizerBands(Map<String, double> bands) async {
+    _equalizerBands.addAll(bands);
+    await _saveEqualizerSettings();
+    notifyListeners();
+  }
+
+  Future<void> setActiveEqPreset(String preset) async {
+    _activeEqPreset = preset;
+    await _saveEqualizerSettings();
+    notifyListeners();
+  }
+
+  Future<void> resetEqualizerToDefault() async {
+    _activeEqPreset = 'Flat Studio';
+    _equalizerBands.updateAll((key, value) => 0.0);
+    await _saveEqualizerSettings();
     notifyListeners();
   }
 }

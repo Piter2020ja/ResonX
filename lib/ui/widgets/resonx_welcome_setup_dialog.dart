@@ -11,7 +11,7 @@ class ResonXWelcomeSetupDialog extends StatefulWidget {
   /// Sprawdza, czy setup był już kiedykolwiek uruchomiony. Jeśli nie – wyświetla dialog.
   static Future<void> showIfFirstLaunch(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
-    final bool isCompleted = prefs.getBool('resonx_setup_completed_v4') ?? false;
+    final bool isCompleted = prefs.getBool('resonx_setup_completed_v4_0_7') ?? false;
 
     if (!isCompleted && context.mounted) {
       await showDialog(
@@ -112,7 +112,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
 
     // Zapisanie w SharedPreferences, że pierwsze uruchomienie zakończyło się pomyślnie
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('resonx_setup_completed_v4', true);
+    await prefs.setBool('resonx_setup_completed_v4_0_7', true);
 
     await Future.delayed(const Duration(milliseconds: 250));
     if (mounted) {
@@ -290,7 +290,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
                             border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.5)),
                           ),
                           child: const Text(
-                            'v4.0.5',
+                            'v4.0.7',
                             style: TextStyle(
                               color: Color(0xFF00E676),
                               fontSize: 9.5,
@@ -505,7 +505,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
           ),
           const SizedBox(height: 4),
           const Text(
-            'Regulamin hobbystyczny projektu Open Source ResonX.',
+            'Regulamin licencyjny projektu ResonX (Wersja v4.0.7).',
             style: TextStyle(color: Color(0xFF8E95A5), fontSize: 11.5),
           ),
           const SizedBox(height: 10),
@@ -520,32 +520,38 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '1. CHARAKTER HOBBYSTYCZNY & OPEN SOURCE\n'
-                  'Aplikacja ResonX jest niekomercyjnym projektem hobbystycznym tworzonym i rozwijanym przez Piter2020ja. Udostępniana jest bezpłatnie jako oprogramowanie otwartoźródłowe.',
+                  '1. CHARAKTER PROJEKTU & PRAWA AUTORSKIE\n'
+                  'Aplikacja ResonX jest niezależnym oprogramowaniem stworzonym przez autora Piter2020ja. Wszelkie prawa autorskie, nazwa projektu, identyfikacja wizualna oraz rozwiązania architektoniczne pozostają wyłączną własnością autora.',
                   style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
                 ),
                 SizedBox(height: 10),
                 Text(
-                  '2. CAŁKOWITE WYŁĄCZENIE ODPOWIEDZIALNOŚCI (KLAUZULA „AS IS”)\n'
-                  'Oprogramowanie jest dostarczane w stanie, w jakim się znajduje („AS IS”), bez jakichkolwiek gwarancji – wyraźnych ani dorozumianych, w tym gwarancji bezbłędnego działania, przydatności do określonego celu czy kompatybilności sprzętowej. Autor (twórca oprogramowania) w najszerszym dopuszczalnym przez prawo zakresie nie ponosi żadnej odpowiedzialności za jakiekolwiek bezpośrednie, pośrednie, przypadkowe lub następcze szkody, w tym awarie systemu, utratę plików, uszkodzenia słuchawek/głośników wynikające z nieprawidłowej konfiguracji poziomów głośności/pre-ampu DSP, ani za ewentualne błędy i luki w kodzie.',
+                  '2. ZAKAZ ODSPRZEDAŻY, PODSZYWANIA SIĘ I DYSTRYBUCJI KOMERCYJNEJ\n'
+                  'Surowo zabrania się jakiejkolwiek odsprzedaży aplikacji ResonX, jej redystrybucji w celach zarobkowych, pobierania opłat za dostęp do programu oraz sublicencjonowania. Całkowicie zabronione jest podszywanie się pod autora, usuwanie informacji o autorstwie (Piter2020ja) oraz wydawanie aplikacji pod inną nazwą bez uprzedniej pisemnej zgody twórcy.',
+                  style: TextStyle(color: Color(0xFFFF5252), fontSize: 11.5, height: 1.45, fontWeight: FontWeight.w700),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '3. MODYFIKACJE NA WYŁĄCZNY UŻYTEK WŁASNY\n'
+                  'Użytkownik ma pełne prawo do modyfikowania, dostosowywania oraz kompilowania kodu źródłowego na własny, prywatny użytek (na własne potrzeby). Wprowadzane zmiany nie mogą być wykorzystywane na szkodę autora, projektu ResonX, innych użytkowników ani w celu obejścia integralności aplikacji lub naruszenia praw osób trzecich.',
+                  style: TextStyle(color: Color(0xFF00E676), fontSize: 11.5, height: 1.45, fontWeight: FontWeight.w600),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '4. CAŁKOWITE WYŁĄCZENIE ODPOWIEDZIALNOŚCI (KLAUZULA „AS IS”)\n'
+                  'Oprogramowanie jest dostarczane w stanie, w jakim się znajduje („AS IS”), bez jakichkolwiek gwarancji – wyraźnych ani dorozumianych. Autor nie ponosi żadnej odpowiedzialności za jakiekolwiek bezpośrednie, pośrednie lub przypadkowe szkody wynikające z korzystania z aplikacji, w tym za usterki sprzętu nagłaśniającego, utratę danych czy błędy konfiguracji.',
                   style: TextStyle(color: Color(0xFFFFB74D), fontSize: 11.5, height: 1.45, fontWeight: FontWeight.w500),
                 ),
                 SizedBox(height: 10),
                 Text(
-                  '3. PRYWATNOŚĆ I BRAK TELEMETRII\n'
-                  'ResonX szanuje Twoją prywatność. Aplikacja nie zbiera, nie śledzi, ani nie przesyła Twoich danych osobowych, historii odsłuchu czy plików dźwiękowych na zewnętrzne serwery telemetryczne. Cała baza danych, statystyki i playlisty przechowywane są wyłącznie lokalnie na Twoim urządzeniu.',
+                  '5. PRYWATNOŚĆ I BRAK TELEMETRII\n'
+                  'ResonX szanuje Twoją prywatność. Aplikacja nie gromadzi danych osobowych, nie śledzi odsłuchów ani nie przesyła Twoich plików na zewnętrzne serwery. Baza danych, ustawienia i historia pozostają wyłącznie na Twoim urządzeniu.',
                   style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
                 ),
                 SizedBox(height: 10),
                 Text(
-                  '4. PRAWA AUTORSKIE DO ODTWARZANYCH TREŚCI\n'
-                  'Użytkownik ponosi wyłączną odpowiedzialność prawną za pochodzenie, legalność oraz prawa autorskie do wszystkich plików audio wczytywanych, odtwarzanych lub indeksowanych przez aplikację ResonX.',
-                  style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
-                ),
-                SizedBox(height: 10),
-                Text(
-                  '5. WSPARCIE SPOŁECZNOŚCI & FEEDBACK\n'
-                  'Wszelkie sugestie, zgłoszenia błędów oraz propozycje ulepszeń można kierować bezpośrednio do twórcy za pośrednictwem serwera Discord (użytkownik: piter2020ja) lub na platformie GitHub.',
+                  '6. PRAWA DO ODTWARZANYCH TREŚCI & KONTAKT\n'
+                  'Użytkownik ponosi wyłączną odpowiedzialność za legalność i prawa autorskie odtwarzanych materiałów dźwiękowych. Kontakt z twórcą: Discord (piter2020ja).',
                   style: TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.4),
                 ),
               ],
@@ -573,7 +579,7 @@ class _ResonXWelcomeSetupDialogState extends State<ResonXWelcomeSetupDialog>
           )
         else
           const Text(
-            'DSP 10-Band • Anti-Clip • Cyber-OLED',
+            'ResonX v4.0.7 • DSP Engine • Piter2020ja',
             style: TextStyle(color: Color(0xFF555B6E), fontSize: 10.5, fontWeight: FontWeight.bold),
           ),
         if (!_isInstalling)

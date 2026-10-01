@@ -9,6 +9,7 @@ import '../../services/equalizer_service.dart';
 import '../../services/api_service.dart';
 import '../../services/downloader_service.dart';
 import '../../services/github_update_service.dart';
+import '../../services/settings_service.dart';
 import '../../main.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -53,6 +54,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final eq = Provider.of<EqualizerService>(context);
     final battery = Provider.of<BatterySaverService>(context);
     final updater = Provider.of<GithubUpdateService>(context);
+    final settings = SettingsService.instance;
 
     final bool isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
@@ -369,6 +371,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Column(
               children: [
+                SwitchListTile(
+                  title: const Text('Optymalizacja dla Słabego Internetu / Wolnego Łącza', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Mniejszy wstępny bufor chunków, dłuższe timeouty i automatyczne ponawianie połączenia bez zacinania', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),
+                  value: settings.weakNetworkOptimization,
+                  activeThumbColor: ResonXColors.cyberJade,
+                  onChanged: (val) async {
+                    await settings.setWeakNetworkOptimization(val);
+                    setState(() {});
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(val ? 'Włączono tryb oszczędzania transferu i stabilizacji słabego internetu.' : 'Wyłączono tryb słabego internetu.'),
+                          backgroundColor: ResonXColors.surfaceBlack,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                const Divider(color: ResonXColors.cardBorder, height: 1),
                 SwitchListTile(
                   title: const Text('Inteligentne Oszczędzanie Baterii (Low Power UI)', style: TextStyle(color: ResonXColors.textPrimary, fontSize: 13.5)),
                   subtitle: const Text('Ogranicza animacje wizualizatora i obciążenie procesora w tle', style: TextStyle(color: ResonXColors.textSecondary, fontSize: 11.5)),

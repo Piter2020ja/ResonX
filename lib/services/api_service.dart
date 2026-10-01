@@ -5,7 +5,6 @@ import '../models/track.dart';
 
 enum MusicPlatformSource {
   soundCloud,
-  youtubeMusic,
   fallbackCdn,
 }
 
@@ -48,11 +47,12 @@ class ApiService {
         receiveTimeout: const Duration(seconds: 15),
         headers: {
           'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
           'Accept-Language': 'pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7',
-          'Origin': 'https://music.youtube.com',
-          'Referer': 'https://music.youtube.com/',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-site',
         },
       ),
     );
@@ -78,14 +78,14 @@ class ApiService {
 
   final Map<String, String> _streamHeaders = {
     'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Connection': 'keep-alive',
-    'Referer': 'https://music.youtube.com/',
+    'Referer': 'https://soundcloud.com/',
   };
 
   // ---------------------------------------------------------------------------
-  // DYNAMICZNE POBIERANIE TOKENA SOUNDCLOUD
+  // PRAWDZIWY DYNAMICZNY SCRAPER TOKENA CLIENT_ID Z SOUNDCLOUD CDN
   // ---------------------------------------------------------------------------
 
   Future<String> _getClientId() async {
@@ -96,198 +96,151 @@ class ApiService {
     }
 
     try {
-      final homeResponse = await _dio.get('https://soundcloud.com');
+      debugPrint('[ResonX Token Engine] Pobieranie świeżego tokena z serwerów SoundCloud...');
+      final homeResponse = await _dio.get(
+        'https://soundcloud.com',
+        options: Options(
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+        ),
+      );
       final html = homeResponse.data.toString();
 
-      final scriptRegex = RegExp(r'<script\s+crossorigin\s+src="([^"]+\.js)"');
-      final matches = scriptRegex.allMatches(html).toList();
+      // Wyciąganie wszystkich skryptów z CDN SoundCloud (a-v2.sndcdn.com)
+      final scriptRegex = RegExp(r'https?://[a-zA-Z0-9.-]*sndcdn\.com/assets/[a-zA-Z0-9._-]+\.js');
+      final scriptMatches = scriptRegex.allMatches(html).map((m) => m.group(0)!).toSet().toList();
 
-      for (final match in matches.reversed) {
-        final jsUrl = match.group(1);
-        if (jsUrl != null && jsUrl.isNotEmpty) {
-          try {
-            final jsResponse = await _dio.get(jsUrl);
-            final jsCode = jsResponse.data.toString();
+      for (final jsUrl in scriptMatches.reversed) {
+        try {
+          final jsResponse = await _dio.get(
+            jsUrl,
+            options: Options(responseType: ResponseType.plain),
+          );
+          final jsCode = jsResponse.data.toString();
 
-            final idRegex = RegExp(r'client_id[:=]["\x27]([a-zA-Z0-9]{32})["\x27]');
-            final idMatch = idRegex.firstMatch(jsCode);
+          // Wzorzec dopasowujący client_id z plików JS SoundCloud
+          final idPatterns = [
+            RegExp(r'client_id[:=]["\x27]([a-zA-Z0-9]{32})["\x27]'),
+            RegExp(r'client_id:"([a-zA-Z0-9]{32})"'),
+            RegExp(r'client_id=([a-zA-Z0-9]{32})'),
+            RegExp(r'["\x27]?client_id["\x27]?\s*:\s*["\x27]([a-zA-Z0-9]{32})["\x27]'),
+          ];
 
-            if (idMatch != null) {
-              _dynamicClientId = idMatch.group(1);
-              _clientIdExpiry = DateTime.now().add(const Duration(hours: 12));
-              debugPrint('[ResonX SoundCloud Engine] Wykryto aktywny token: $_dynamicClientId');
-              return _dynamicClientId!;
+          for (final pattern in idPatterns) {
+            final match = pattern.firstMatch(jsCode);
+            if (match != null) {
+              final foundId = match.group(1);
+              if (foundId != null && foundId.length == 32) {
+                _dynamicClientId = foundId;
+                _clientIdExpiry = DateTime.now().add(const Duration(hours: 4));
+                debugPrint('[ResonX Token Engine] Sukces! Pobrany aktywny client_id: $_dynamicClientId');
+                return _dynamicClientId!;
+              }
             }
-          } catch (_) {
-            continue;
           }
+        } catch (_) {
+          continue;
         }
       }
     } catch (e) {
-      debugPrint('[ResonX SoundCloud] Błąd automatycznego tokena: $e');
+      debugPrint('[ResonX Token Engine] Błąd podczas dynamicznego pobierania tokena: $e');
     }
 
-    _dynamicClientId ??= 'dFjXyWspU8Q8zU8k3m1rJ4cRjV8xL2tP';
+    // Bezpieczny fallback na wypadek braku połączenia przy pierwszym uruchomieniu
+    _dynamicClientId ??= 'iZIs9mchVcX5lhVR1HNuuDZUT8t6Pabw';
     return _dynamicClientId!;
   }
 
   // ---------------------------------------------------------------------------
-  // RANKING TRAFNOŚCI
+  // SYSTEM TRAFNOŚCI I ANTY-REMIX (ORYGINAŁY NA SAMĄ GÓRĘ)
   // ---------------------------------------------------------------------------
 
   int _calculateTrackRelevanceScore(Track track, String originalQuery) {
     int score = 0;
     final query = originalQuery.toLowerCase().trim();
+    final queryWords = query.split(RegExp(r'\s+')).where((w) => w.length > 1).toList();
+
     final title = track.title.toLowerCase();
     final artist = track.artist.toLowerCase();
+    final combined = '$artist - $title';
 
     if (track.isOfficial) {
-      score += 100;
+      score += 250;
+    }
+
+    int matchedWords = 0;
+    for (final word in queryWords) {
+      if (title.contains(word) || artist.contains(word)) {
+        matchedWords++;
+      }
+    }
+    if (queryWords.isNotEmpty && matchedWords == queryWords.length) {
+      score += 150;
     }
 
     if (artist == query) {
-      score += 90;
+      score += 120;
     } else if (artist.contains(query) || query.contains(artist)) {
-      score += 50;
+      score += 60;
     }
 
     if (title == query) {
-      score += 80;
+      score += 130;
     } else if (title.startsWith(query)) {
-      score += 40;
-    } else if (title.contains(query)) {
-      score += 25;
+      score += 50;
     }
 
-    final junkWords = ['cover', 'remix', 'karaoke', 'instrumental', 'slowed', 'reverb', 'bass boosted', 'tribute'];
+    const junkWords = [
+      'remix',
+      'drill remix',
+      'drill version',
+      'flip',
+      'edit',
+      'slowed',
+      'reverb',
+      'slowed reverb',
+      'sped up',
+      'speed up',
+      'nightcore',
+      'bass boosted',
+      'bassboost',
+      'instrumental',
+      'karaoke',
+      'cover',
+      'tribute',
+      'type beat',
+      'acapella',
+      'bootleg',
+      'club mix'
+    ];
+
     for (final junk in junkWords) {
-      if (title.contains(junk) && !query.contains(junk)) {
-        score -= 120;
+      if ((title.contains(junk) || combined.contains(junk)) && !query.contains(junk)) {
+        score -= 200;
       }
     }
 
-    if (track.durationSeconds >= 90 && track.durationSeconds <= 360) {
-      score += 20;
+    if (track.durationSeconds >= 90 && track.durationSeconds <= 330) {
+      score += 40;
+    } else if (track.durationSeconds < 60) {
+      score -= 100;
     } else if (track.durationSeconds > 600) {
-      score -= 60;
+      score -= 150;
     }
 
     return score;
   }
 
   // ---------------------------------------------------------------------------
-  // WYSZUKIWANIE BEZPOŚREDNIE PRZEZ YOUTUBE MUSIC INNERTUBE (WEB SPOOFING)
-  // ---------------------------------------------------------------------------
-
-  Future<List<Track>> _searchYouTubeWebDirect(String query, int limit) async {
-    try {
-      final List<Track> tracks = [];
-      final response = await _dio.post(
-        'https://music.youtube.com/youtubei/v1/search',
-        queryParameters: {'prettyPrint': 'false'},
-        data: {
-          'context': {
-            'client': {
-              'clientName': 'WEB_REMIX',
-              'clientVersion': '1.20240905.01.00',
-              'hl': 'pl',
-              'gl': 'PL',
-            },
-          },
-          'query': query,
-          'params': 'EgWKAQIIAWoSEAMQBBAJEAoQBRAREBUREA0%3D', // Filtrowanie na utwory muzyczne
-        },
-      ).timeout(const Duration(seconds: 8));
-
-      if (response.statusCode == 200 && response.data != null) {
-        final contents = response.data['contents']?['tabbedSearchResultsRenderer']?['tabs']?[0]?['tabRenderer']?['content']?['sectionListRenderer']?['contents'] as List?;
-        
-        if (contents != null) {
-          for (final section in contents) {
-            final musicShelf = section['musicShelfRenderer']?['contents'] as List?;
-            if (musicShelf != null) {
-              for (final renderer in musicShelf) {
-                final trackRenderer = renderer['musicResponsiveListItemRenderer'];
-                if (trackRenderer != null) {
-                  final flexColumns = trackRenderer['flexColumns'] as List?;
-                  if (flexColumns == null || flexColumns.isEmpty) continue;
-
-                  // Tytuł
-                  final titleRun = flexColumns[0]['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs']?[0];
-                  final title = titleRun?['text']?.toString() ?? 'Nieznany utwór';
-                  final navigationEndpoint = titleRun?['navigationEndpoint'];
-                  final videoId = navigationEndpoint?['watchEndpoint']?['videoId']?.toString() ?? '';
-
-                  if (videoId.isEmpty) continue;
-
-                  // Wykonawca
-                  String artist = 'Oficjalny wykonawca';
-                  String album = 'Official Studio Audio';
-                  if (flexColumns.length > 1) {
-                    final subtitleRuns = flexColumns[1]['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List?;
-                    if (subtitleRuns != null && subtitleRuns.isNotEmpty) {
-                      artist = subtitleRuns.first['text']?.toString() ?? 'Oficjalny wykonawca';
-                    }
-                  }
-
-                  // Miniaturka
-                  String thumbnail = '';
-                  final thumbs = trackRenderer['thumbnail']?['musicThumbnailRenderer']?['thumbnail']?['thumbnails'] as List?;
-                  if (thumbs != null && thumbs.isNotEmpty) {
-                    thumbnail = thumbs.last['url']?.toString() ?? '';
-                  }
-
-                  // Czas trwania
-                  int durationSeconds = 195;
-                  final fixedColumns = trackRenderer['fixedColumns'] as List?;
-                  if (fixedColumns != null && fixedColumns.isNotEmpty) {
-                    final durText = fixedColumns[0]['musicResponsiveListItemFixedColumnRenderer']?['text']?['runs']?[0]?['text']?.toString() ?? '';
-                    final parts = durText.split(':');
-                    if (parts.length == 2) {
-                      final m = int.tryParse(parts[0]) ?? 3;
-                      final s = int.tryParse(parts[1]) ?? 15;
-                      durationSeconds = m * 60 + s;
-                    }
-                  }
-
-                  tracks.add(
-                    Track(
-                      id: 'yt_$videoId',
-                      title: title,
-                      artist: artist.replaceAll(' - Topic', '').trim(),
-                      album: album,
-                      durationSeconds: durationSeconds,
-                      coverUrl: thumbnail,
-                      audioUrl: 'https://www.youtube.com/watch?v=$videoId',
-                      isOfficial: true,
-                      bitrate: 320,
-                      fileFormat: 'OPUS HQ',
-                    ),
-                  );
-
-                  if (tracks.length >= limit) break;
-                }
-              }
-            }
-            if (tracks.length >= limit) break;
-          }
-        }
-      }
-      return tracks;
-    } catch (e) {
-      debugPrint('[ResonX YouTube Web Search Error] $e');
-      return [];
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // GŁÓWNA METODA WYSZUKIWANIA
+  // GŁÓWNA METODA WYSZUKIWANIA (CZYSTY SOUNDCLOUD)
   // ---------------------------------------------------------------------------
 
   Future<List<Track>> searchTracks(
     String query, {
-    int targetResultsCount = 30,
-    bool includeYouTube = true,
+    int targetResultsCount = 40,
+    bool includeYouTube = false,
     bool includeSoundCloud = true,
   }) async {
     final cleanQuery = query.trim();
@@ -299,85 +252,109 @@ class ApiService {
     }
 
     _totalNetworkRequests++;
-    debugPrint('[ResonX Search Engine] Wyszukiwanie Web Innertube dla: "$cleanQuery"');
+    debugPrint('[ResonX Search Engine] Pobieranie wyników dla: "$cleanQuery"');
 
     final List<Track> combinedTracks = [];
 
-    if (includeYouTube) {
+    try {
+      String clientId = await _getClientId();
+      Response? response;
       try {
-        final ytResults = await _searchYouTubeWebDirect(cleanQuery, targetResultsCount);
-        combinedTracks.addAll(ytResults);
-      } catch (e) {
-        debugPrint('[ResonX Search Engine] Błąd YouTube Web: $e');
-      }
-    }
-
-    if (includeSoundCloud) {
-      try {
-        final clientId = await _getClientId();
-        final response = await _dio.get(
+        response = await _dio.get(
           'https://api-v2.soundcloud.com/search/tracks',
           queryParameters: {
             'q': cleanQuery,
             'client_id': clientId,
             'limit': targetResultsCount,
           },
-        ).timeout(const Duration(seconds: 6));
+          options: Options(
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              'Accept': 'application/json, text/javascript, */*; q=0.01',
+              'Referer': 'https://soundcloud.com/',
+            },
+          ),
+        ).timeout(const Duration(seconds: 10));
+      } on DioException catch (dioErr) {
+        if (dioErr.response?.statusCode == 401) {
+          debugPrint('[ResonX Search Engine] Wykryto 401! Unieważniam stary token i pobieram świeży z CDN...');
+          _dynamicClientId = null;
+          _clientIdExpiry = null;
+          clientId = await _getClientId();
 
-        if (response.statusCode == 200 && response.data != null) {
-          final collection = response.data['collection'] as List?;
-          if (collection != null) {
-            for (final item in collection) {
-              final id = 'sc_${item['id']}';
-              final title = item['title']?.toString() ?? 'Nieznany utwór';
-              final artist = item['user']?['username']?.toString() ?? 'Wykonawca';
+          response = await _dio.get(
+            'https://api-v2.soundcloud.com/search/tracks',
+            queryParameters: {
+              'q': cleanQuery,
+              'client_id': clientId,
+              'limit': targetResultsCount,
+            },
+            options: Options(
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Referer': 'https://soundcloud.com/',
+              },
+            ),
+          ).timeout(const Duration(seconds: 10));
+        } else {
+          rethrow;
+        }
+      }
 
-              int durationSeconds = 180;
-              if (item['duration'] is int) {
-                durationSeconds = (item['duration'] as int) ~/ 1000;
-              }
+      if (response != null && response.statusCode == 200 && response.data != null) {
+        final collection = response.data['collection'] as List?;
+        if (collection != null) {
+          for (final item in collection) {
+            final id = 'sc_${item['id']}';
+            final title = item['title']?.toString() ?? 'Nieznany utwór';
+            final artist = item['user']?['username']?.toString() ?? 'Wykonawca';
 
-              String cover = item['artwork_url']?.toString() ?? '';
-              if (cover.isNotEmpty) {
-                cover = cover.replaceAll('-large', '-t500x500');
-              } else {
-                cover = item['user']?['avatar_url']?.toString() ?? '';
-              }
-
-              String streamProgressiveUrl = '';
-              if (item['media'] != null && item['media']['transcodings'] is List) {
-                final transcodings = item['media']['transcodings'] as List;
-                for (final tc in transcodings) {
-                  if (tc['format']?['protocol'] == 'progressive') {
-                    streamProgressiveUrl = tc['url'] ?? '';
-                    break;
-                  }
-                }
-                if (streamProgressiveUrl.isEmpty && transcodings.isNotEmpty) {
-                  streamProgressiveUrl = transcodings.first['url'] ?? '';
-                }
-              }
-
-              combinedTracks.add(
-                Track(
-                  id: id,
-                  title: title,
-                  artist: artist,
-                  album: 'SoundCloud',
-                  durationSeconds: durationSeconds,
-                  coverUrl: cover,
-                  audioUrl: streamProgressiveUrl,
-                  isOfficial: false,
-                  bitrate: 256,
-                  fileFormat: 'MP3',
-                ),
-              );
+            int durationSeconds = 180;
+            if (item['duration'] is int) {
+              durationSeconds = (item['duration'] as int) ~/ 1000;
             }
+
+            String cover = item['artwork_url']?.toString() ?? '';
+            if (cover.isNotEmpty) {
+              cover = cover.replaceAll('-large', '-t500x500');
+            } else {
+              cover = item['user']?['avatar_url']?.toString() ?? '';
+            }
+
+            String streamProgressiveUrl = '';
+            if (item['media'] != null && item['media']['transcodings'] is List) {
+              final transcodings = item['media']['transcodings'] as List;
+              for (final tc in transcodings) {
+                if (tc['format']?['protocol'] == 'progressive') {
+                  streamProgressiveUrl = tc['url'] ?? '';
+                  break;
+                }
+              }
+              if (streamProgressiveUrl.isEmpty && transcodings.isNotEmpty) {
+                streamProgressiveUrl = transcodings.first['url'] ?? '';
+              }
+            }
+
+            combinedTracks.add(
+              Track(
+                id: id,
+                title: title,
+                artist: artist,
+                album: 'SoundCloud Original',
+                durationSeconds: durationSeconds,
+                coverUrl: cover,
+                audioUrl: streamProgressiveUrl,
+                isOfficial: item['user']?['verified'] == true,
+                bitrate: 256,
+                fileFormat: 'MP3',
+              ),
+            );
           }
         }
-      } catch (e) {
-        debugPrint('[ResonX Search Engine] Błąd SoundCloud: $e');
       }
+    } catch (e) {
+      debugPrint('[ResonX Search Engine] Błąd pobierania z SoundCloud: $e');
     }
 
     if (combinedTracks.isNotEmpty) {
@@ -408,26 +385,23 @@ class ApiService {
   // ---------------------------------------------------------------------------
 
   Future<Stream<List<int>>?> getTrackAudioByteStream(Track track) async {
-    if (track.id.startsWith('yt_') || track.audioUrl.contains('youtube.com')) {
-      try {
-        final streamResult = await resolveDirectAudioStream(track);
-        if (streamResult.directUrl.isNotEmpty) {
-          final res = await _dio.get<ResponseBody>(
-            streamResult.directUrl,
-            options: Options(responseType: ResponseType.stream),
-          );
-          return res.data?.stream;
-        }
-      } catch (e) {
-        debugPrint('[ResonX Audio Engine Error] Błąd strumienia bajtów: $e');
-        return null;
+    try {
+      final streamResult = await resolveDirectAudioStream(track);
+      if (streamResult.directUrl.isNotEmpty) {
+        final res = await _dio.get<ResponseBody>(
+          streamResult.directUrl,
+          options: Options(responseType: ResponseType.stream),
+        );
+        return res.data?.stream;
       }
+    } catch (e) {
+      debugPrint('[ResonX Audio Engine Error] Błąd strumienia bajtów: $e');
     }
     return null;
   }
 
   // ---------------------------------------------------------------------------
-  // ROZWIĄZYWANIE STRUMIENIA AUDIO PRZEZ PLAYER INNERTUBE (WEB SPOOFING)
+  // ROZWIĄZYWANIE STRUMIENIA AUDIO
   // ---------------------------------------------------------------------------
 
   Future<DirectAudioStreamResult> resolveDirectAudioStream(Track track) async {
@@ -441,78 +415,20 @@ class ApiService {
 
     _totalNetworkRequests++;
 
-    if (track.id.startsWith('yt_') || track.audioUrl.contains('youtube.com')) {
-      try {
-        final videoId = track.id.replaceAll('yt_', '');
-        final response = await _dio.post(
-          'https://music.youtube.com/youtubei/v1/player',
-          queryParameters: {'prettyPrint': 'false'},
-          data: {
-            'context': {
-              'client': {
-                'clientName': 'WEB_REMIX',
-                'clientVersion': '1.20240905.01.00',
-                'hl': 'pl',
-                'gl': 'PL',
-              },
-            },
-            'videoId': videoId,
-          },
-        ).timeout(const Duration(seconds: 8));
-
-        if (response.statusCode == 200 && response.data != null) {
-          final streamingData = response.data['streamingData'];
-          if (streamingData != null) {
-            final adaptiveFormats = streamingData['adaptiveFormats'] as List?;
-            final formats = streamingData['formats'] as List?;
-            
-            List<dynamic> allStreams = [];
-            if (adaptiveFormats != null) allStreams.addAll(adaptiveFormats);
-            if (formats != null) allStreams.addAll(formats);
-
-            // Wybieramy najlepszy strumień audio (mimetype audio)
-            final audioStreams = allStreams.where((s) {
-              final mime = s['mimeType']?.toString() ?? '';
-              return mime.contains('audio/');
-            }).toList();
-
-            if (audioStreams.isNotEmpty) {
-              audioStreams.sort((a, b) => (b['bitrate'] ?? 0).compareTo(a['bitrate'] ?? 0));
-              final bestStream = audioStreams.first;
-              final streamUrl = bestStream['url']?.toString() ?? '';
-              final bitrate = ((bestStream['bitrate'] ?? 128000) / 1000).round();
-
-              if (streamUrl.isNotEmpty) {
-                final result = DirectAudioStreamResult(
-                  directUrl: streamUrl,
-                  audioFormat: 'opus',
-                  bitrateKbps: bitrate,
-                  contentLengthBytes: int.tryParse(bestStream['contentLength']?.toString() ?? '0') ?? 0,
-                  platform: MusicPlatformSource.youtubeMusic,
-                  isDirectDownloadable: true,
-                  requiredHttpHeaders: _streamHeaders,
-                  streamExpiryTime: DateTime.now().add(const Duration(hours: 3)),
-                );
-
-                _directStreamCache[track.id] = result;
-                debugPrint('[ResonX Web Innertube Audio] Uzyskano bezpośredni strumień: $bitrate kbps');
-                return result;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('[ResonX Web Innertube Audio Error] $e');
-      }
-    }
-
-    if (track.audioUrl.isNotEmpty && !track.audioUrl.contains('youtube')) {
+    if (track.audioUrl.isNotEmpty) {
       final clientId = await _getClientId();
       try {
         final res = await _dio.get(
           track.audioUrl,
           queryParameters: {'client_id': clientId},
-        );
+          options: Options(
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              'Accept': 'application/json, text/javascript, */*; q=0.01',
+              'Referer': 'https://soundcloud.com/',
+            },
+          ),
+        ).timeout(const Duration(seconds: 10));
 
         if (res.statusCode == 200 && res.data != null && res.data['url'] != null) {
           final directUrl = res.data['url'] as String;
@@ -571,7 +487,7 @@ class ApiService {
           'artist_name': cleanArtist,
           'duration': track.durationSeconds,
         },
-      ).timeout(const Duration(seconds: 4));
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200 && response.data != null) {
         final syncedText = response.data['syncedLyrics']?.toString() ?? '';

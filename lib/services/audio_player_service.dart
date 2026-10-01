@@ -272,6 +272,9 @@ class AudioPlayerService extends ChangeNotifier {
     // Konfiguracja natywnego filtra MPV do detekcji ciszy
     _setupMpvSilenceDetection();
 
+    // Inicjalizacja filtrów korektora DSP
+    applyDspEqualizerFromDatabase();
+
     // Odbieranie poleceń od pływającej wyspy poza aplikacją (Android Overlay)
     if (!kIsWeb && Platform.isAndroid) {
       FlutterOverlayWindow.overlayListener.listen((event) {
@@ -332,12 +335,45 @@ class AudioPlayerService extends ChangeNotifier {
     DatabaseService.instance.addListener(_syncFavorites);
   }
 
+  // ---------------------------------------------------------------------------
+  // PRAWDZIWY KOREKTOR DŹWIĘKU DSP DLA SILNIKA MPV
+  // ---------------------------------------------------------------------------
+
+  void applyDspEqualizerFromDatabase() {
+    try {
+      final bands = DatabaseService.instance.equalizerBands;
+      if (bands.isEmpty) return;
+
+      final buffer = StringBuffer('lavfi=[');
+      final List<String> eqFilters = [];
+
+      bands.forEach((freqLabel, gainDb) {
+        final f = freqLabel.replaceAll('Hz', '').replaceAll('kHz', '000');
+        eqFilters.add('equalizer=f=$f:width_type=o:w=1:g=${gainDb.toStringAsFixed(1)}');
+      });
+
+      buffer.write(eqFilters.join(','));
+      buffer.write(']');
+
+      final dynamic nativePlatform = _rawPlayer.platform;
+      if (nativePlatform != null) {
+        (nativePlatform as dynamic)?.command?.call([
+          'set_property',
+          'af',
+          buffer.toString(),
+        ]);
+        debugPrint('[ResonX DSP Engine] Zastosowano parametryczny filtr korektora MPV.');
+      }
+    } catch (e) {
+      debugPrint('[ResonX DSP Error] $e');
+    }
+  }
+
   void _setupMpvSilenceDetection() {
     try {
       final dynamic nativePlatform = _rawPlayer.platform;
       if (nativePlatform != null) {
         try {
-          // Bezpieczne wywołanie natywnej komendy MPV bez błędów typowania
           (nativePlatform as dynamic)?.command?.call([
             'set_property',
             'af',
@@ -458,7 +494,7 @@ class AudioPlayerService extends ChangeNotifier {
 
       final completer = Completer<String?>();
       int totalBytesReceived = 0;
-      const int initialThresholdBytes = 250 * 1024;
+      final int initialThresholdBytes = SettingsService.instance.optimalInitialBufferBytes;
       bool hasInitialBufferReady = false;
 
       _activeStreamSubscription = byteStream.listen(
@@ -471,7 +507,7 @@ class AudioPlayerService extends ChangeNotifier {
           if (!hasInitialBufferReady && totalBytesReceived >= initialThresholdBytes) {
             hasInitialBufferReady = true;
             if (!completer.isCompleted) {
-              debugPrint('[ResonX Stream Pipe] Zbuforowano wstępne ${totalBytesReceived ~/ 1024} KB. Start lokalnego odtwarzacza!');
+              debugPrint('[ResonX Stream Pipe] Zbuforowano wstępne ${totalBytesReceived ~/ 1024} KB. Start odtwarzacza!');
               completer.complete(file.path);
             }
           }
@@ -493,8 +529,9 @@ class AudioPlayerService extends ChangeNotifier {
         cancelOnError: true,
       );
 
+      final timeoutSec = SettingsService.instance.networkTimeoutSeconds;
       return await completer.future.timeout(
-        const Duration(seconds: 12),
+        Duration(seconds: timeoutSec),
         onTimeout: () {
           _activeStreamSubscription?.cancel();
           if (file.existsSync() && file.lengthSync() > 50 * 1024) {
@@ -620,6 +657,14 @@ class AudioPlayerService extends ChangeNotifier {
 
       if (_crossfadeSeconds > 0) {
         _applyFadeIn();
+      }
+
+      // Sprawdzenie i automatyczny start od zapisanego trwałego punktu startu
+      final savedOffsetSec = DatabaseService.instance.getTrackStartOffset(track.id);
+      if (savedOffsetSec > 0) {
+        Future.delayed(const Duration(milliseconds: 250), () {
+          seek(Duration(seconds: savedOffsetSec));
+        });
       }
 
       _isPlaying = true;
